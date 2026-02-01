@@ -1,0 +1,128 @@
+graph TD
+    A((Início Diário)) --> B[Monitoramento STF]
+    B --> C{Novas Publicações?}
+    C -->|Não| D[Aguardar Próximo Ciclo]
+    C -->|Sim| E[/Coletar Lista de Decisões/]
+    
+    E --> F{Tipo de Documento?}
+    F -->|HTML| G[Download HTML]
+    F -->|PDF| H[Download PDF]
+    F -->|Anexos| I[Download Anexos]
+    
+    G --> J[Extração de Texto]
+    H --> K[Extração PDF]
+    I --> L[OCR Imagens]
+    
+    J --> M[Validação de Conteúdo]
+    K --> M
+    L --> M
+    
+    M --> N{Conteúdo Válido?}
+    N -->|Não| O[Log de Erro]
+    N -->|Sim| P[Extração de Metadados]
+    
+    P --> Q[Número do Processo]
+    P --> R[Classe da Ação]
+    P --> S[Relator]
+    P --> T[Datas Relevantes]
+    P --> U[Partes Envolvidas]
+    
+    Q --> V[Processamento NLP]
+    R --> V
+    S --> V
+    T --> V
+    U --> V
+    
+    V --> W{Citações Encontradas?}
+    W -->|Não| X[Armazenar sem Citações]
+    W -->|Sim| Y[Análise de Citações]
+    
+    Y --> Z[Identificar Autores]
+    Y --> AA[Identificar Obras]
+    Y --> BB[Classificar Contexto]
+    
+    Z --> CC[Normalização de Dados]
+    AA --> CC
+    BB --> CC
+    
+    CC --> DD{Dados Consistentes?}
+    DD -->|Não| EE[Marcar para Revisão Manual]
+    DD -->|Sim| FF[Persistir no Banco]
+    
+    X --> FF
+    EE --> GG[(Queue Revisão)]
+    FF --> HH[(Base de Dados)]
+    
+    HH --> II[Indexação Full-Text]
+    II --> JJ[Atualização de Estatísticas]
+    JJ --> KK{Critérios de Alerta?}
+    
+    KK -->|Não| LL[Processo Concluído]
+    KK -->|Sim| MM[Gerar Alertas]
+    
+    MM --> NN[Email]
+    MM --> OO[Push Notification]
+    MM --> PP[Webhook]
+    
+    NN --> QQ[Entrega de Alertas]
+    OO --> QQ
+    PP --> QQ
+    
+    QQ --> LL
+    LL --> RR((Fim do Processo))
+    
+    %% Processo Paralelo - Consultas de Usuários
+    SS((Requisição Usuário)) --> TT{Tipo de Consulta?}
+    TT -->|Busca Textual| UU[Query Full-Text]
+    TT -->|Filtros| VV[Query Estruturada]
+    TT -->|Dashboard| WW[Agregação de Dados]
+    
+    UU --> XX[(Índices)]
+    VV --> HH
+    WW --> HH
+    
+    XX --> YY[Formatação Resultados]
+    HH --> YY
+    
+    YY --> ZZ[Resposta ao Usuário]
+    ZZ --> AAA((Fim Consulta))
+    
+    %% Processo de Revisão Manual
+    GG --> BBB[Analista Revisa]
+    BBB --> CCC{Aprovado?}
+    CCC -->|Sim| FF
+    CCC -->|Não| DDD[Descartar]
+    DDD --> EEE((Fim Revisão))
+    
+    %% Processo de Exportação
+    FFF((Req. Exportação)) --> GGG{Formato?}
+    GGG -->|CSV| HHH[Gerar CSV]
+    GGG -->|JSON| III[Gerar JSON]
+    GGG -->|PDF| JJJ[Gerar Relatório]
+    
+    HHH --> KKK[Arquivo Final]
+    III --> KKK
+    JJJ --> KKK
+    
+    KKK --> LLL[Download]
+    LLL --> MMM((Fim Export))
+    
+    %% Configuração de Estilos BPMN
+    O --> D
+    D --> B
+    
+    classDef startEvent fill:#c8e6c9,stroke:#4caf50,stroke-width:3px
+    classDef endEvent fill:#ffcdd2,stroke:#f44336,stroke-width:3px
+    classDef task fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef decision fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef subprocess fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    classDef datastore fill:#e8f5e8,stroke:#4caf50,stroke-width:2px
+    classDef queue fill:#fce4ec,stroke:#e91e63,stroke-width:2px
+    
+    class A,SS,FFF startEvent
+    class RR,AAA,EEE,MMM endEvent
+    class B,E,G,H,I,J,K,L,P,Q,R,S,T,U,V,Y,Z,AA,BB,CC,MM,NN,OO,PP,QQ,UU,VV,WW,YY,ZZ,BBB,HHH,III,JJJ,KKK,LLL task
+    class C,F,N,W,DD,KK,TT,CCC,GGG decision
+    class M,X,FF,II,JJ,LL subprocess
+    class HH,XX datastore
+    class GG queue
