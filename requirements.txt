@@ -1,0 +1,7 @@
+pymongo
+requests
+certifi
+beautifulsoup4
+markdownify
+playwright
+groq
