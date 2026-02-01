@@ -11,18 +11,13 @@ Este documento apresenta exemplos reais (recortados) dos documentos `case_data`,
 {
   "identity": {
     "stfDecisionId": "sjur452406",
-    "caseCode": "ADI 6476",
-    "caseClassDetail": "ADI",
-    "caseNumberDetail": "6476",
     "caseTitle": "ADI 6476",
     "caseUrl": "https://jurisprudencia.stf.jus.br/pages/search/sjur452406/false",
     "caseClass": "ADI",
     "caseNumber": "6476",
     "judgingBody": "Tribunal Pleno",
     "rapporteur": "Tribunal Pleno",
-    "judgmentDate": "08/09/2021",
-    "publicationDate": "08/09/2021",
-    "domResultContainerId": "result-index-1"
+    "domClipboardId": "clipboard-1"
   },
   "audit": {
     "extractionDate": {"$date": "2026-02-01T12:50:03.734Z"},
@@ -192,7 +187,7 @@ Este documento apresenta exemplos reais (recortados) dos documentos `case_data`,
 }
 ```
 
-## 5. Datas normalizadas e query
+## 5. Datas normalizadas
 
 ```json
 {
@@ -200,11 +195,6 @@ Este documento apresenta exemplos reais (recortados) dos documentos `case_data`,
   "dates": {
     "judgmentDate": "08/09/2021",
     "publicationDate": "08/09/2021"
-  },
-  "query": {
-    "queryString": "inconstitucional",
-    "pageSize": 100,
-    "inteiroTeor": true
   }
 }
 ```

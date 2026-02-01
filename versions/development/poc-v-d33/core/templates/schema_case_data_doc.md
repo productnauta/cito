@@ -22,10 +22,9 @@ Esta documentacao descreve o schema da collection `case_data` utilizada no proje
 | `status` | Object | Controle de estado do pipeline. |
 | `caseTitle` | string | Titulo resumido do processo (alias de `identity.caseTitle`). |
 | `dates` | Object | Datas normalizadas do processo. |
-| `query` | Object | Metadados da consulta de origem (quando aplicavel). |
 
 Observacoes:
-- `caseTitle`, `dates` e `query` sao redundantes/derivados e podem nao aparecer em todos os documentos.
+- `caseTitle` e `dates` sao redundantes/derivados e podem nao aparecer em todos os documentos.
 
 ---
 
@@ -42,13 +41,8 @@ Identifica a decisao judicial.
   "judgingBody": "string",
   "rapporteur": "string",
   "opinionWriter": "string (opcional)",
-  "judgmentDate": "string (DD/MM/YYYY)",
-  "publicationDate": "string (DD/MM/YYYY)",
-  "caseCode": "string",
-  "caseClassDetail": "string",
-  "caseNumberDetail": "string",
   "caseQueryId": "string",
-  "domResultContainerId": "string"
+  "domClipboardId": "string"
 }
 ```
 
@@ -263,13 +257,4 @@ Datas normalizadas do processo (quando presente).
 
 Observacao: nos documentos atuais as datas aparecem como `string` no formato `DD/MM/YYYY`. Em migracoes/analiticos pode haver normalizacao para `Date`.
 
-### 2.9. Objeto `query`
-Metadados da consulta de origem (quando presente).
-
-```json
-{
-  "queryString": "string",
-  "pageSize": "int",
-  "inteiroTeor": "bool"
-}
-```
+ 
