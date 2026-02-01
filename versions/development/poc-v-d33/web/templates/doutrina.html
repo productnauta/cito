@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Interface 1: Doutrina</h1>
+      <span class="chip">Total de processos: {{ summary_total }}</span>
+    </div>
+    <p class="panel-copy">
+      Use os filtros para segmentar as citacoes doutrinarias e explorar autores,
+      titulos de publicacao e relatores.
+    </p>
+    <form class="filters" method="get">
+      <label class="field">
+        <span>Autor</span>
+        <input type="text" name="author" value="{{ filters.author }}" placeholder="Ex: HORTA" />
+      </label>
+      <label class="field">
+        <span>Titulo da publicacao</span>
+        <input type="text" name="title" value="{{ filters.title }}" placeholder="Ex: Direito Constitucional" />
+      </label>
+      <label class="field">
+        <span>Classe processual</span>
+        <input type="text" name="case_class" value="{{ filters.case_class }}" placeholder="Ex: ADI" />
+      </label>
+      <label class="field">
+        <span>Ano de julgamento</span>
+        <input type="text" name="judgment_year" value="{{ filters.judgment_year }}" placeholder="Ex: 2021" />
+      </label>
+      <label class="field">
+        <span>Relator</span>
+        <input type="text" name="rapporteur" value="{{ filters.rapporteur }}" placeholder="Ex: Gilmar Mendes" />
+      </label>
+      <label class="field">
+        <span>Orgao julgador</span>
+        <input type="text" name="judging_body" value="{{ filters.judging_body }}" placeholder="Ex: Plenario" />
+      </label>
+      <div class="actions">
+        <button type="submit">Aplicar filtros</button>
+        <a class="secondary" href="{{ url_for('doutrina') }}">Limpar</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Autores</h2>
+        <span class="chip">{{ authors|length }} encontrados</span>
+      </div>
+      {% if authors %}
+        <table>
+          <thead>
+            <tr>
+              <th>Autor</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in authors %}
+              <tr>
+                <td>
+                  <a href="{{ url_for('doutrina_detail', kind='author', value=row.label, **filter_params) }}">
+                    {{ row.label }}
+                  </a>
+                </td>
+                <td>{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Sem resultados para os filtros atuais.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Titulos de publicacao</h2>
+        <span class="chip">{{ titles|length }} encontrados</span>
+      </div>
+      {% if titles %}
+        <table>
+          <thead>
+            <tr>
+              <th>Titulo</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in titles %}
+              <tr>
+                <td>
+                  <a href="{{ url_for('doutrina_detail', kind='title', value=row.label, **filter_params) }}">
+                    {{ row.label }}
+                  </a>
+                </td>
+                <td>{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Sem resultados para os filtros atuais.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Relatores</h2>
+        <span class="chip">{{ rapporteurs|length }} encontrados</span>
+      </div>
+      {% if rapporteurs %}
+        <table>
+          <thead>
+            <tr>
+              <th>Relator</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rapporteurs %}
+              <tr>
+                <td>
+                  <a href="{{ url_for('doutrina_detail', kind='rapporteur', value=row.label, **filter_params) }}">
+                    {{ row.label }}
+                  </a>
+                </td>
+                <td>{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Sem resultados para os filtros atuais.</p>
+      {% endif %}
+    </article>
+  </section>
+{% endblock %}

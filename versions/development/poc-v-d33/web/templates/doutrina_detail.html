@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>{{ detail_kind }}: {{ detail_value }}</h1>
+      <span class="chip">Total de processos: {{ total }}</span>
+    </div>
+    <p class="panel-copy">
+      Lista de processos que referenciam a citacao selecionada.
+    </p>
+    <div class="actions">
+      <a class="secondary" href="{{ url_for('doutrina', **filter_params) }}">Voltar ao painel</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    {% if cases %}
+      <table>
+        <thead>
+          <tr>
+            <th>Titulo do processo</th>
+            <th>STF ID</th>
+            <th>Data julgamento</th>
+            <th>Relator</th>
+            <th>Orgao julgador</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in cases %}
+            <tr>
+              <td>{{ item.case_title }}</td>
+              <td>{{ item.stf_id }}</td>
+              <td>{{ item.judgment_date }}</td>
+              <td>{{ item.rapporteur }}</td>
+              <td>{{ item.judging_body }}</td>
+              <td>
+                {% if item.case_url %}
+                  <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhum processo encontrado para este filtro.</p>
+    {% endif %}
+  </section>
+{% endblock %}

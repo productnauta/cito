@@ -318,6 +318,8 @@ def main() -> int:
     )
     log_block(startup_banner)
 
+    status_counts: Dict[str, int] = {"success": 0, "failed": 0}
+
     for idx, stf_id in enumerate(stf_ids, start=1):
         log(f"({idx}/{total}) Processando stfDecisionId={stf_id}")
         try:
@@ -360,11 +362,13 @@ def main() -> int:
             input_text = fmt.format(stfDecisionId=stf_id, caseUrl=case_url or "")
             steps.append((script, input_text))
 
+        case_failed = False
         for script, input_text in steps:
             log(f"Executando: {script}")
             rc = _run_step(script, input_text)
             if rc != 0:
                 log(f"ERRO: {script} retornou codigo {rc}")
+                case_failed = True
                 if execution_cfg.get("stop_on_error") is True:
                     return 1
             else:
@@ -375,7 +379,13 @@ def main() -> int:
             log(f"Aguardando {delay_items}s antes do proximo item...")
             time.sleep(delay_items)
 
+        if case_failed:
+            status_counts["failed"] += 1
+        else:
+            status_counts["success"] += 1
+
     log("Pipeline finalizado.")
+    log_block(_build_summary_banner(total, status_counts))
     return 0
 
 

@@ -58,14 +58,14 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 
 ### Sucesso
 - `caseContent.caseHtmlClean`.
-- `processing.caseHtmlCleanedAt`, `processing.caseHtmlCleanMeta`,
+- `processing.caseHtmlCleaningAt`, `processing.caseHtmlCleanedAt`, `processing.caseHtmlCleanMeta`,
   `processing.caseHtmlCleanError=null`.
 - `processing.pipelineStatus="caseHtmlCleaned"`.
 - `status.pipelineStatus="caseHtmlCleaned"`.
 - `audit.updatedAt`, `audit.lastCaseHtmlCleanedAt`.
 
 ### Erro
-- `processing.caseHtmlCleanedAt`.
+- `processing.caseHtmlCleaningAt` ou `processing.caseHtmlCleanedAt`.
 - `processing.caseHtmlCleanError=<mensagem>`.
 - `processing.pipelineStatus="caseHtmlCleanError"`.
 - `audit.updatedAt`.
@@ -74,7 +74,7 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 
 ### Sucesso
 - `caseContent.raw.<slug>` e `caseContent.md.<slug>`.
-- `processing.caseSectionsExtractedAt`, `processing.caseSectionsMeta`,
+- `processing.caseSectionsExtractingAt`, `processing.caseSectionsExtractedAt`, `processing.caseSectionsMeta`,
   `processing.caseSectionsError=null`.
 - `processing.pipelineStatus="caseSectionsExtracted"`.
 - `status.pipelineStatus="caseSectionsExtracted"`.
@@ -125,14 +125,14 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 - `status.pipelineStatus="legislationExtractError"`.
 - `audit.updatedAt`, `status.updatedAt`.
 
-## Step06 - Legislacao (Groq)
+## Step06 - Legislacao (IA - Mistral/Groq)
 
 ### Sucesso
 - `caseData.legislationReferences`.
 - `processing.caseLegislationRefsStatus="success"`.
 - `processing.caseLegislationRefsError=null`.
 - `processing.caseLegislationRefsAt`.
-- `processing.caseLegislationRefsProvider="groq"`.
+- `processing.caseLegislationRefsProvider="mistral" | "groq"`.
 - `processing.caseLegislationRefsModel=<model>`.
 - `processing.caseLegislationRefsLatencyMs`.
 - `processing.pipelineStatus="legislationExtracted"`.
@@ -143,20 +143,20 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 - `processing.caseLegislationRefsStatus="error"`.
 - `processing.caseLegislationRefsError=<mensagem>`.
 - `processing.caseLegislationRefsAt`.
-- `processing.caseLegislationRefsProvider="groq"`.
+- `processing.caseLegislationRefsProvider="mistral" | "groq"`.
 - `processing.caseLegislationRefsModel=<model>`.
 - `processing.pipelineStatus="legislationExtractError"`.
 - `status.pipelineStatus="legislationExtractError"`.
 - `audit.updatedAt`.
 
-## Step07 - Notes (Groq)
+## Step07 - Notes (IA - Mistral/Groq)
 
 ### Sucesso
 - `caseData.notesReferences`.
 - `processing.caseNotesRefsStatus="success"`.
 - `processing.caseNotesRefsError=null`.
 - `processing.caseNotesRefsAt`.
-- `processing.caseNotesRefsProvider="groq"`.
+- `processing.caseNotesRefsProvider="mistral" | "groq"`.
 - `processing.caseNotesRefsModel=<model>`.
 - `processing.caseNotesRefsLatencyMs`.
 - `processing.pipelineStatus="notesReferencesExtracted"`.
@@ -167,20 +167,20 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 - `processing.caseNotesRefsStatus="error"`.
 - `processing.caseNotesRefsError=<mensagem>`.
 - `processing.caseNotesRefsAt`.
-- `processing.caseNotesRefsProvider="groq"`.
+- `processing.caseNotesRefsProvider="mistral" | "groq"`.
 - `processing.caseNotesRefsModel=<model>`.
 - `processing.pipelineStatus="notesReferencesExtractError"`.
 - `status.pipelineStatus="notesReferencesExtractError"`.
 - `audit.updatedAt`.
 
-## Step08 - Doutrina (Groq)
+## Step08 - Doutrina (IA - Mistral/Groq)
 
 ### Sucesso
-- `caseData.caseDoctrines`.
+- `caseData.doctrineReferences`.
 - `processing.caseDoctrineStatus="success"`.
 - `processing.caseDoctrineError=null`.
 - `processing.caseDoctrineAt`.
-- `processing.caseDoctrineProvider="groq"`.
+- `processing.caseDoctrineProvider="mistral" | "groq"`.
 - `processing.caseDoctrineModel=<model>`.
 - `processing.caseDoctrineLatencyMs`.
 - `processing.caseDoctrineCount`.
@@ -192,10 +192,34 @@ Este documento descreve os requisitos, condicoes e ocorrencias usados para persi
 - `processing.caseDoctrineStatus="error"`.
 - `processing.caseDoctrineError=<mensagem>`.
 - `processing.caseDoctrineAt`.
-- `processing.caseDoctrineProvider="groq"`.
+- `processing.caseDoctrineProvider="mistral" | "groq"`.
 - `processing.caseDoctrineModel=<model>`.
 - `processing.pipelineStatus="doctrineExtractError"`.
 - `status.pipelineStatus="doctrineExtractError"`.
+- `audit.updatedAt`.
+
+## Step09 - Decision Details (IA - Mistral/Groq)
+
+### Sucesso
+- `caseData.decisionDetails`.
+- `processing.caseDecisionDetailsStatus="success"`.
+- `processing.caseDecisionDetailsError=null`.
+- `processing.caseDecisionDetailsAt`.
+- `processing.caseDecisionDetailsProvider="mistral" | "groq"`.
+- `processing.caseDecisionDetailsModel=<model>`.
+- `processing.caseDecisionDetailsLatencyMs`.
+- `processing.pipelineStatus="decisionDetailsExtracted"`.
+- `status.pipelineStatus="decisionDetailsExtracted"`.
+- `audit.updatedAt`.
+
+### Erro
+- `processing.caseDecisionDetailsStatus="error"`.
+- `processing.caseDecisionDetailsError=<mensagem>`.
+- `processing.caseDecisionDetailsAt`.
+- `processing.caseDecisionDetailsProvider="mistral" | "groq"`.
+- `processing.caseDecisionDetailsModel=<model>`.
+- `processing.pipelineStatus="decisionDetailsExtractError"`.
+- `status.pipelineStatus="decisionDetailsExtractError"`.
 - `audit.updatedAt`.
 
 ## Condicoes de gating entre etapas

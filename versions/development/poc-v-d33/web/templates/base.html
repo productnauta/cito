@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ title or "CITO Doutrina" }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div class="brand">
+          <span class="brand-mark">CITO</span>
+          <span class="brand-sub">Doutrina</span>
+        </div>
+        <p class="hero-copy">
+          Painel de consulta e cruzamento de citacoes doutrinarias nos processos do STF.
+        </p>
+      </header>
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="footer">
+        <span>poc-v-d33</span>
+        <span>Flask + MongoDB</span>
+      </footer>
+    </div>
+  </body>
+</html>

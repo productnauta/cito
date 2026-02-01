@@ -40,6 +40,7 @@
             "caseNumber": { "bsonType": "string", "minLength": 1 },
             "judgingBody": { "bsonType": "string", "minLength": 1 },
             "rapporteur": { "bsonType": "string", "minLength": 1 },
+            "opinionWriter": { "bsonType": "string", "minLength": 1 },
             "judgmentDate": {
               "bsonType": "string",
               "pattern": "^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}$"
@@ -88,7 +89,281 @@
             },
             "originalHtml": { "bsonType": "string" },
             "cleanHtml": { "bsonType": "string" },
-            "caseHtml": { "bsonType": "string" }
+            "caseHtml": { "bsonType": "string" },
+            "caseHtmlClean": { "bsonType": "string" },
+            "md": {
+              "bsonType": "object",
+              "additionalProperties": true,
+              "properties": {
+                "header": { "bsonType": "string" },
+                "publication": { "bsonType": "string" },
+                "parties": { "bsonType": "string" },
+                "summary": { "bsonType": "string" },
+                "decision": { "bsonType": "string" },
+                "keywords": { "bsonType": "string" },
+                "legislation": { "bsonType": "string" },
+                "notes": { "bsonType": "string" },
+                "doctrine": { "bsonType": "string" }
+              }
+            },
+            "raw": {
+              "bsonType": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+
+        "caseTitle": { "bsonType": "string" },
+        "dates": {
+          "bsonType": "object",
+          "additionalProperties": true,
+          "properties": {
+            "judgmentDate": { "bsonType": ["string", "date"] },
+            "publicationDate": { "bsonType": ["string", "date"] }
+          }
+        },
+        "query": {
+          "bsonType": "object",
+          "additionalProperties": true,
+          "properties": {
+            "queryString": { "bsonType": "string" },
+            "pageSize": { "bsonType": "int" },
+            "inteiroTeor": { "bsonType": "bool" }
+          }
+        },
+        "caseData": {
+          "bsonType": "object",
+          "additionalProperties": true,
+          "properties": {
+            "caseKeywords": {
+              "bsonType": "array",
+              "items": { "bsonType": "string" }
+            },
+            "caseParties": {
+              "bsonType": "array",
+              "items": {
+                "bsonType": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "partieType": { "bsonType": "string" },
+                  "partieName": { "bsonType": "string" }
+                }
+              }
+            },
+            "legislationReferences": {
+              "bsonType": "array",
+              "items": {
+                "bsonType": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "normIdentifier": { "bsonType": "string" },
+                  "jurisdictionLevel": { "bsonType": "string" },
+                  "normType": { "bsonType": "string" },
+                  "normYear": { "bsonType": "int" },
+                  "normDescription": { "bsonType": "string" },
+                  "normReferences": {
+                    "bsonType": "array",
+                    "items": {
+                      "bsonType": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "articleNumber": { "bsonType": "int" },
+                        "isCaput": { "bsonType": "bool" },
+                        "incisoNumber": { "bsonType": ["int", "null"] },
+                        "paragraphNumber": { "bsonType": ["int", "null"] },
+                        "isParagraphSingle": { "bsonType": "bool" },
+                        "letterCode": { "bsonType": ["string", "null"] }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "notesReferences": {
+              "bsonType": "array",
+              "items": {
+                "bsonType": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "noteType": { "bsonType": "string" },
+                  "rawLine": { "bsonType": "string" },
+                  "items": {
+                    "bsonType": "array",
+                    "items": {
+                      "bsonType": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "itemType": { "bsonType": "string" },
+                        "caseClass": { "bsonType": ["string", "null"] },
+                        "caseNumber": { "bsonType": ["string", "null"] },
+                        "suffix": { "bsonType": ["string", "null"] },
+                        "orgTag": { "bsonType": ["string", "null"] },
+                        "country": { "bsonType": ["string", "null"] },
+                        "rawRef": { "bsonType": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "doctrineReferences": {
+              "bsonType": "array",
+              "items": {
+                "bsonType": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "author": { "bsonType": "string" },
+                  "publicationTitle": { "bsonType": "string" },
+                  "edition": { "bsonType": ["string", "null"] },
+                  "publicationPlace": { "bsonType": ["string", "null"] },
+                  "publisher": { "bsonType": ["string", "null"] },
+                  "year": { "bsonType": ["int", "null"] },
+                  "page": { "bsonType": ["string", "null"] },
+                  "rawCitation": { "bsonType": "string" }
+                }
+              }
+            },
+            "decisionDetails": {
+              "bsonType": "object",
+              "additionalProperties": true,
+              "properties": {
+                "decisionSummary": {
+                  "bsonType": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "summary": { "bsonType": "string" }
+                  }
+                },
+                "decisionResult": {
+                  "bsonType": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "finalDecision": { "bsonType": "string" }
+                  }
+                },
+                "ministerVotes": {
+                  "bsonType": "array",
+                  "items": {
+                    "bsonType": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "ministerName": { "bsonType": ["string", "null"] },
+                      "voteType": { "bsonType": "string" },
+                      "voteSummary": { "bsonType": ["string", "null"] }
+                    }
+                  }
+                },
+                "partyRequests": {
+                  "bsonType": "array",
+                  "items": {
+                    "bsonType": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "requestType": { "bsonType": "string" },
+                      "requestingParty": { "bsonType": ["string", "null"] },
+                      "requestDescription": { "bsonType": "string" },
+                      "requestOutcome": { "bsonType": "string" }
+                    }
+                  }
+                },
+                "speakers": {
+                  "bsonType": "array",
+                  "items": {
+                    "bsonType": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "lawyerName": { "bsonType": "string" },
+                      "representedParty": { "bsonType": "string" },
+                      "argumentSummary": { "bsonType": ["string", "null"] }
+                    }
+                  }
+                },
+                "legalBasis": {
+                  "bsonType": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "summary": { "bsonType": "string" }
+                  }
+                },
+                "citations": {
+                  "bsonType": "array",
+                  "items": {
+                    "bsonType": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "citationType": { "bsonType": "string" },
+                      "citationName": { "bsonType": "string" },
+                      "relevanceSummary": { "bsonType": "string" }
+                    }
+                  }
+                },
+                "decisionType": { "bsonType": "string" },
+                "decisionDates": {
+                  "bsonType": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "judgmentStartDate": { "bsonType": "string" },
+                    "judgmentEndDate": { "bsonType": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "processing": {
+          "bsonType": "object",
+          "additionalProperties": true,
+          "properties": {
+            "pipelineStatus": { "bsonType": "string" },
+            "caseScrapeStatus": { "bsonType": "string" },
+            "caseScrapeError": { "bsonType": ["string", "null"] },
+            "caseScrapeAt": { "bsonType": "date" },
+            "caseScrapeHttpStatus": { "bsonType": "int" },
+            "caseScrapeLatencyMs": { "bsonType": "int" },
+            "caseScrapeHtmlBytes": { "bsonType": "int" },
+            "caseHtmlCleaningAt": { "bsonType": "date" },
+            "caseHtmlCleanedAt": { "bsonType": "date" },
+            "caseHtmlCleanError": { "bsonType": ["string", "null"] },
+            "caseHtmlCleanMeta": { "bsonType": "object" },
+            "caseSectionsExtractingAt": { "bsonType": "date" },
+            "caseSectionsExtractedAt": { "bsonType": "date" },
+            "caseSectionsError": { "bsonType": ["string", "null"] },
+            "caseSectionsMeta": { "bsonType": "object" },
+            "partiesKeywords": { "bsonType": "object" },
+            "caseLegislationRefsStatus": { "bsonType": "string" },
+            "caseLegislationRefsError": { "bsonType": ["string", "null"] },
+            "caseLegislationRefsAt": { "bsonType": "date" },
+            "caseLegislationRefsProvider": { "bsonType": "string" },
+            "caseLegislationRefsModel": { "bsonType": "string" },
+            "caseLegislationRefsLatencyMs": { "bsonType": "int" },
+            "caseNotesRefsStatus": { "bsonType": "string" },
+            "caseNotesRefsError": { "bsonType": ["string", "null"] },
+            "caseNotesRefsAt": { "bsonType": "date" },
+            "caseNotesRefsProvider": { "bsonType": "string" },
+            "caseNotesRefsModel": { "bsonType": "string" },
+            "caseNotesRefsLatencyMs": { "bsonType": "int" },
+            "caseDoctrineStatus": { "bsonType": "string" },
+            "caseDoctrineError": { "bsonType": ["string", "null"] },
+            "caseDoctrineAt": { "bsonType": "date" },
+            "caseDoctrineProvider": { "bsonType": "string" },
+            "caseDoctrineModel": { "bsonType": "string" },
+            "caseDoctrineLatencyMs": { "bsonType": "int" },
+            "caseDoctrineCount": { "bsonType": "int" },
+            "caseDecisionDetailsStatus": { "bsonType": "string" },
+            "caseDecisionDetailsError": { "bsonType": ["string", "null"] },
+            "caseDecisionDetailsAt": { "bsonType": "date" },
+            "caseDecisionDetailsProvider": { "bsonType": "string" },
+            "caseDecisionDetailsModel": { "bsonType": "string" },
+            "caseDecisionDetailsLatencyMs": { "bsonType": "int" }
+          }
+        },
+        "status": {
+          "bsonType": "object",
+          "additionalProperties": true,
+          "properties": {
+            "pipelineStatus": { "bsonType": "string" },
+            "updatedAt": { "bsonType": "date" },
+            "error": { "bsonType": "string" }
           }
         }
       }
