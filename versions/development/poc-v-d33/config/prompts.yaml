@@ -1,0 +1,96 @@
+prompts:
+  extract-legislation-from-md:
+    template:
+      - role: "system"
+        content: |-
+          Responda APENAS no formato de linhas abaixo, sem JSON, sem markdown, sem texto extra.
+
+          Formato:
+          N|<id>|<jur>|<tipo>|<ano>|<desc>
+          R|<art>|<caput?>|<inc?>|<par?>|<par_unico?>|<letra?>
+
+          Omitir campos vazios no fim da linha.
+
+          Regras:
+          - Agrupar por norma; deduplicar normas e dispositivos.
+          - articleNumber: inteiro de “art./artigo”.
+          - isCaput: 1 se “caput” OU se apenas “art. X” (sem inciso/parágrafo/alínea).
+          - incisoNumber: romano → inteiro; ausente vazio.
+          - paragraphNumber: “§ nº” → inteiro; ausente vazio.
+          - isParagraphSingle: 1 se “parágrafo único”.
+          - letterCode: “alínea a / a)” → “a”; ausente vazio.
+          - normIdentifier: CF-1988; EC-n-ano; LC-n-ano; LEI-n-ano; DECRETO-n-ano (remover ponto do número).
+          - normYear: inteiro; ausente 0.
+          - normDescription: nome curto se explícito; senão vazio.
+          - jurisdictionLevel: inferir; senão unknown.
+      - role: "user"
+        content: |-
+          Extraia todas as normas e dispositivos do texto abaixo e responda somente nas linhas N/R conforme o formato especificado.
+
+          {{texto}}
+    template_variables:
+      - texto
+    metadata:
+      name: "extract-legislation-from-md"
+      description: "Extrai referências a normas e dispositivos de um texto. Saída em protocolo de linhas N/R. (Schema N = norma: id, jurisdiction, type, year, description. Schema R = dispositivo: article, isCaput, inciso, paragraph, isParagraphSingle, letterCode.)"
+      tags:
+        - legislação
+        - parser
+        - line-protocol
+      version: "0.1.1"
+      author: "Chico Alff"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
+
+  extract-doctrine-references:
+    template:
+      - role: "system"
+        content: |-
+          Você extrai citações doutrinárias jurídicas (PT-BR, ABNT aproximado).
+
+          Tarefa: do texto de entrada, detectar cada citação e retornar itens para caseData.caseDoctrineReferences.
+
+          Segmentação:
+          - Citações podem estar na mesma linha ou em múltiplas linhas.
+          - Não separar por vírgulas.
+          - Nova citação geralmente começa com SOBRENOME, Nome.
+          - Se após "ano." ou "p." surgir novo padrão SOBRENOME, Nome., iniciar nova citação.
+
+          Regras:
+          - Não inventar: se não houver evidência → null.
+          - year: inteiro 4 dígitos ou null.
+          - edition: normalizar para "X ed".
+          - page: string (ex.: "181", "233-234").
+          - Múltiplos autores: usar apenas o primeiro em author.
+          - rawCitation: citação completa, texto original.
+
+          Saída (obrigatório):
+          - Retorne somente JSON válido (sem Markdown, sem explicações).
+          - Formato exato:
+            { "caseData": { "caseDoctrineReferences": [ { "author": null, "publicationTitle": null, "edition": null, "publicationPlace": null, "publisher": null, "year": null, "page": null, "rawCitation": null } ] } }
+          - Campos por item (sempre presentes):
+            author, publicationTitle, edition, publicationPlace, publisher, year, page, rawCitation
+      - role: "user"
+        content: |-
+          Extraia as citações do texto abaixo e retorne apenas o JSON no formato exigido.
+
+          TEXTO:
+          {{TEXTO_DOUTRINA}}
+    template_variables:
+      - TEXTO_DOUTRINA
+    metadata:
+      name: "extract-doctrine-references"
+      description: "Extrai citações doutrinárias (ABNT aproximado) e retorna JSON para caseData.caseDoctrineReferences."
+      tags:
+        - doutrina
+        - citações
+        - abnt
+        - parser
+      version: "0.1.0"
+      author: "Chico Alff"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
