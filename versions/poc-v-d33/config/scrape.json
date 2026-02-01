@@ -1,0 +1,26 @@
+{
+  "mode": "requests",
+  "requests": {
+    "timeout_sec": 60,
+    "ssl_verify": true,
+    "use_certifi": true,
+    "allow_insecure_fallback": true,
+    "retries_on_202": 2,
+    "wait_between_202_sec": 1.5,
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Referer": "https://jurisprudencia.stf.jus.br/"
+    }
+  },
+  "playwright": {
+    "browser": "chromium",
+    "headless": true,
+    "timeout_ms": 60000,
+    "wait_until": "networkidle",
+    "extra_headers": {
+      "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+  }
+}

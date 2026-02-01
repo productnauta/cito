@@ -1,0 +1,45 @@
+{
+  "scraping": {
+    "prefer_method": "requests_then_playwright",
+    "requests": {
+      "timeout_seconds": 60,
+      "verify_tls": true,
+      "allow_redirects": true,
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": "https://jurisprudencia.stf.jus.br/"
+      }
+    },
+    "playwright": {
+      "enabled": true,
+      "headless": true,
+      "timeout_ms": 60000,
+      "wait_until": "domcontentloaded",
+      "wait_for_load_state": "networkidle",
+      "extra_wait_ms": 0,
+      "context": {
+        "locale": "pt-BR",
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "extra_http_headers": {
+          "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+          "Referer": "https://jurisprudencia.stf.jus.br/"
+        }
+      }
+    },
+    "challenge_detection": {
+      "enabled": true,
+      "markers": [
+        "token.awswaf.com",
+        "AwsWafIntegration",
+        "challenge.js",
+        "challenge-container",
+        "verify that you're not a robot",
+        "window.awsWafCookieDomainList"
+      ]
+    }
+  }
+}
