@@ -9,17 +9,10 @@
           "items": {
             "type": "object",
             "properties": {
-              "normIdentifier": {
-                "type": "string"
-              },
+              "normIdentifier": { "type": "string" },
               "jurisdictionLevel": {
                 "type": "string",
-                "enum": [
-                  "federal",
-                  "state",
-                  "municipal",
-                  "unknown"
-                ]
+                "enum": ["federal", "state", "municipal", "unknown"]
               },
               "normType": {
                 "type": "string",
@@ -34,44 +27,19 @@
                   "OUTRA"
                 ]
               },
-              "normYear": {
-                "type": "integer"
-              },
-              "normDescription": {
-                "type": "string"
-              },
+              "normYear": { "type": "integer" },
+              "normDescription": { "type": "string" },
               "normReferences": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "articleNumber": {
-                      "type": "integer"
-                    },
-                    "isCaput": {
-                      "type": "boolean"
-                    },
-                    "incisoNumber": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "paragraphNumber": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    },
-                    "isParagraphSingle": {
-                      "type": "boolean"
-                    },
-                    "letterCode": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    }
+                    "articleNumber": { "type": "integer" },
+                    "isCaput": { "type": "boolean" },
+                    "incisoNumber": { "type": ["integer", "null"] },
+                    "paragraphNumber": { "type": ["integer", "null"] },
+                    "isParagraphSingle": { "type": "boolean" },
+                    "letterCode": { "type": ["string", "null"] }
                   }
                 }
               }
