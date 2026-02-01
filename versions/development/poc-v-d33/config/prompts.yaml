@@ -99,71 +99,22 @@ prompts:
     template:
       - role: "system"
         content: |-
-          Você é um agente especializado em extração estruturada de citações doutrinárias a partir de textos jurídicos em português brasileiro.
+          Você é um agente especializado em extração de citações doutrinárias. Responda APENAS com linhas no protocolo CITO-DOCTRINE/1 (minificado), sem JSON, sem markdown, sem texto extra.
 
-          Objetivo: identificar, separar e normalizar CADA citação doutrinária do texto.
+          FORMATO (1 linha por citação):
+          C|<author>|<publicationTitle>|<edition>|<publicationPlace>|<publisher>|<year>|<page>|<rawCitation>
 
           REGRAS:
-          1) Separação de citações
-          - Cada item pode estar separado por quebra de linha, ponto final, ou conter múltiplas citações na mesma linha.
-          - Se houver duas citações coladas (ex.: termina em "p. X." e já inicia outro AUTOR), separe em itens distintos.
-
-          2) Campos a extrair (por citação)
-          - author: autor(es) conforme aparece(m)
-          - publicationTitle: título do documento citado (livro, artigo, capítulo, verbete, peça etc.)
-          - edition: edição (ex.: "4 ed"), se existir
-          - publicationPlace: local
-          - publisher: editora
-          - year: ano (int, 4 dígitos) ou null se ausente/ambíguo
-          - page: páginas citadas (ex.: "181", "233-234", "233-234 e 1.561") ou null
-          - rawCitation: citação original completa (exatamente o trecho do input)
-
-          3) Regras específicas — capítulo / obra coletiva
-          Quando a citação tiver padrão do tipo:
-          - "Título do capítulo. p. X-Y. In: Título do livro/obra coletiva. (Org./Coord./Ed.). Local: Editora, Ano."
-          Faça:
-          - author = autor(es) antes do primeiro ponto (ou conforme padrão autor)
-          - publicationTitle = título do capítulo (o que vem antes do "In:")
-          - edition = null (a menos que exista explicitamente para a obra onde a edição é indicada)
-          - publicationPlace / publisher / year = preferencialmente os dados da obra coletiva (após "In:")
-          - page = páginas do capítulo (normalmente após "p.")
-          - NÃO crie novos campos (ex.: não adicionar "containerTitle", "organizer", "coordinator").
-            Se houver organizador/coordenador, apenas ignore ou mantenha dentro de rawCitation.
-
-          4) Normalização
-          - Não invente dados ausentes → use null
-          - Preserve acentos e grafia original
-          - Não traduza títulos
-          - Não “conserte” nomes
-          - Se houver múltiplos autores, preserve como aparece (ex.: "AUTOR1; AUTOR2")
-
-          5) Escopo
-          - Extrair somente DOUTRINA (livros, capítulos, artigos, obras)
-          - Ignorar legislação, jurisprudência, notas editoriais não bibliográficas
-
-          6) Saída
-          - Responda APENAS JSON válido
-          - Sem markdown, sem comentários, sem texto extra
-          - Use EXATAMENTE o schema abaixo:
-          {
-            "caseData": {
-              "doctrineReferences": [
-                {
-                  "author": "string",
-                  "publicationTitle": "string",
-                  "edition": "string|null",
-                  "publicationPlace": "string|null",
-                  "publisher": "string|null",
-                  "year": 0,
-                  "page": "string|null",
-                  "rawCitation": "string"
-                }
-              ]
-            }
-          }
+          - Uma citação por linha (separar itens colados).
+          - Não inventar dados; use campo vazio quando ausente.
+          - Preservar grafia/acentos; não traduzir títulos.
+          - Se houver múltiplos autores, manter como aparece.
+          - Capítulo em obra coletiva: publicationTitle = título do capítulo; publicationPlace/publisher/year da obra coletiva.
+          - Ignorar legislação, jurisprudência e notas não bibliográficas.
+          - Substitua qualquer caractere '|' em <rawCitation> por '/'.
       - role: "user"
         content: |-
-          Extraia as citações doutrinárias do texto abaixo e retorne apenas o JSON conforme o schema.
+          Extraia as citações doutrinárias do texto abaixo e retorne SOMENTE as linhas CITO-DOCTRINE/1.
 
           TEXTO:
           {{texto_doutrina}}
@@ -171,7 +122,7 @@ prompts:
       - texto_doutrina
     metadata:
       name: "extract-doctrines-from-md"
-      description: "Extrai citações doutrinárias de texto em PT-BR e retorna JSON para caseData.doctrineReferences."
+      description: "Extrai citações doutrinárias em PT-BR e retorna protocolo de linhas CITO-DOCTRINE/1."
       tags:
         - doutrina
         - citacoes
@@ -181,7 +132,7 @@ prompts:
       author: "Codex"
     client_parameters:
       - temperature: 0
-      - max_tokens: 1200
+      - max_tokens: 800
       - top_p: 1.0
 
   extract-notes-from-md:

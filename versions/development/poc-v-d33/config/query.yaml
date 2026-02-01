@@ -1,0 +1,38 @@
+query:
+  id: 1
+  status: active
+  query_string: maria da penha
+  full_text: true
+  paging:
+    page: 1
+    page_size: 100
+  sorting:
+    sort: _score
+    sort_by: desc
+
+http:
+  request_delay_seconds: 5.5
+  ssl_verify: false
+
+runtime:
+  headed_mode: false
+  output_dir: poc/v-a33-240125/data/html
+
+url:
+  scheme: https
+  host: jurisprudencia.stf.jus.br
+  path: /pages/search
+
+fixed_query_params:
+  base: acordaos
+  text_search_flags:
+    synonym: true
+    plural: true
+    stems: false
+    exact_search: true
+  filters:
+    process_class_sigla:
+      - ADC
+      - ADI
+      - ADO
+      - ADPF

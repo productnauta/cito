@@ -63,7 +63,7 @@ CASE_DATA_COLLECTION = "case_data"
 
 # Definir provider e prompt alterando apenas estas variaveis
 PROVIDER_NAME = "mistral"
-PROVIDER_KEY_NAME = "cito-dev-a"
+PROVIDER_KEY_NAME = "cito-dev-c"
 PROMPT_ID = "get_decision-details-stf"
 
 
@@ -388,6 +388,11 @@ def main() -> int:
         mongo_cfg = build_mongo_cfg(load_yaml(MONGO_CONFIG_PATH))
         provider_cfg = build_provider_cfg(load_yaml(PROVIDERS_CONFIG_PATH), PROVIDER_NAME, PROVIDER_KEY_NAME)
         prompt_cfg = build_prompt_cfg(load_yaml(PROMPTS_CONFIG_PATH), PROMPT_ID)
+        log(
+            "IA em uso | "
+            f"PROVIDER={PROVIDER_NAME} | PROVIDER_KEY_NAME={PROVIDER_KEY_NAME} | "
+            f"MODEL={provider_cfg.model} | Temperature={provider_cfg.temperature}"
+        )
         log(f"MongoDB config OK | database='{mongo_cfg.database}'")
         log(f"Provider OK | name='{provider_cfg.name}' | model='{provider_cfg.model}'")
         log(f"Prompt OK | id='{PROMPT_ID}'")

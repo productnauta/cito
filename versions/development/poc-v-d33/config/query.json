@@ -14,7 +14,7 @@
     }
   },
   "http": {
-  "request_delay_sec": 5.5,
+  "request_delay_sec": 10.5,
    "ssl_verify": false
   },
   "runtime": {

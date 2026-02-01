@@ -317,27 +317,15 @@ def persist_error(col: Collection, doc_id: Any, *, err: str) -> None:
 # 5) MAIN
 # =============================================================================
 
-def _prompt_mode() -> Tuple[str, Optional[str]]:
+def _prompt_case_id() -> str:
     """
-    Pergunta ao usuario o modo de execucao.
-    Retorna (mode, stf_decision_id).
-    mode in {"all", "one"}
+    Solicita o stfDecisionId.
     """
-    print("\nSelecione o modo de execucao:")
-    print("  1) Processar TODOS com status.pipelineStatus = caseHtmlCleaned")
-    print("  2) Processar APENAS um documento por stfDecisionId")
-
     while True:
-        choice = input("Opcao (1/2): ").strip()
-        if choice == "1":
-            return "all", None
-        if choice == "2":
-            stf_decision_id = input("Informe o stfDecisionId: ").strip()
-            if stf_decision_id:
-                return "one", stf_decision_id
-            print("stfDecisionId vazio. Tente novamente.")
-        else:
-            print("Opcao invalida. Use 1 ou 2.")
+        stf_decision_id = input("Informe o stfDecisionId: ").strip()
+        if stf_decision_id:
+            return stf_decision_id
+        print("stfDecisionId vazio. Tente novamente.")
 
 
 def _log_doc_header(doc: Dict[str, Any]) -> None:
@@ -398,35 +386,7 @@ def main() -> int:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1
 
-    mode, stf_decision_id = _prompt_mode()
-
-    if mode == "all":
-        base_filter: Dict[str, Any] = {"status.pipelineStatus": "caseHtmlCleaned"}
-        log("STEP", "Buscando documentos com status.pipelineStatus = caseHtmlCleaned")
-        try:
-            cursor = col.find(
-                base_filter,
-                projection={
-                    "caseContent.caseHtmlClean": 1,
-                    "identity.stfDecisionId": 1,
-                    "caseTitle": 1,
-                    "status.pipelineStatus": 1,
-                },
-            )
-        except PyMongoError as e:
-            log("ERROR", f"Erro ao consultar documentos: {e}")
-            return 1
-
-        total = 0
-        ok = 0
-        for doc in cursor:
-            total += 1
-            _log_doc_header(doc)
-            if process_document(col, doc):
-                ok += 1
-
-        log("INFO", f"Finalizado | total={total} | ok={ok} | erro={total - ok}")
-        return 0 if total == ok else 1
+    stf_decision_id = _prompt_case_id()
 
     log("STEP", f"Buscando documento por identity.stfDecisionId='{stf_decision_id}'")
     try:

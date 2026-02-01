@@ -17,8 +17,6 @@ Dependencies: pymongo, requests, pyyaml
 from __future__ import annotations
 
 import argparse
-import json
-import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -261,60 +259,66 @@ def call_mistral(cfg: ProviderCfg, messages: List[Dict[str, str]], params: Dict[
 
 
 # =============================================================================
-# 4) PARSE JSON
+# 4) PARSE LINE PROTOCOL
 # =============================================================================
 
-def _repair_json_text(text: str) -> Optional[str]:
-    # Tenta reparar erros comuns de JSON (cercas de codigo, virgulas extras)
-    s = (text or "").strip()
+def _to_int_or_none(value: str) -> Optional[int]:
+    s = (value or "").strip()
     if not s:
         return None
-
-    if s.startswith("```"):
-        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
-        s = re.sub(r"\s*```$", "", s)
-
-    first = s.find("{")
-    last = s.rfind("}")
-    if first == -1 or last == -1 or last <= first:
-        return None
-
-    candidate = s[first:last + 1].strip()
-    if candidate.lower().startswith("json"):
-        candidate = candidate[4:].strip()
-
-    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-    return candidate
-
-
-def parse_json_with_repair(text: str) -> Dict[str, Any]:
-    # Parseia JSON tentando reparos simples antes de falhar
-    s = (text or "").strip()
-    if not s:
-        raise ValueError("Resposta da IA vazia.")
     try:
-        return json.loads(s)
-    except Exception:
-        repaired = _repair_json_text(s)
-        if not repaired:
-            raise
-        return json.loads(repaired)
+        return int(s)
+    except ValueError:
+        return None
 
 
-def normalize_doctrine_payload(parsed: Dict[str, Any]) -> List[Dict[str, Any]]:
-    # Aceita payload apenas em caseData.doctrineReferences
-    if not isinstance(parsed, dict):
-        raise ValueError("JSON parseado nao e um objeto.")
+def _to_str_or_none(value: str) -> Optional[str]:
+    s = (value or "").strip()
+    return s if s else None
 
-    case_data = parsed.get("caseData") if isinstance(parsed.get("caseData"), dict) else None
-    if not case_data:
-        raise ValueError("JSON nao contem objeto 'caseData'.")
 
-    doctrines = case_data.get("doctrineReferences")
-    if isinstance(doctrines, list):
-        return doctrines
+def parse_doctrine_protocol(text: str) -> List[Dict[str, Any]]:
+    """
+    Converte protocolo CITO-DOCTRINE/1 em lista de doctrineReferences.
+    Formato por linha: C|author|publicationTitle|edition|publicationPlace|publisher|year|page|rawCitation
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    output: List[Dict[str, Any]] = []
 
-    raise ValueError("JSON nao contem 'caseData.doctrineReferences'.")
+    for line in lines:
+        if not line.startswith("C|"):
+            continue
+        parts = line.split("|", 8)
+        # Garante 9 campos (tag + 8)
+        while len(parts) < 9:
+            parts.append("")
+
+        author = _to_str_or_none(parts[1])
+        title = _to_str_or_none(parts[2])
+        edition = _to_str_or_none(parts[3])
+        place = _to_str_or_none(parts[4])
+        publisher = _to_str_or_none(parts[5])
+        year = _to_int_or_none(parts[6])
+        page = _to_str_or_none(parts[7])
+        raw = (parts[8] or "").strip()
+
+        if not raw and not (author or title):
+            continue
+
+        output.append(
+            {
+                "author": author or "",
+                "publicationTitle": title or "",
+                "edition": edition,
+                "publicationPlace": place,
+                "publisher": publisher,
+                "year": year,
+                "page": page,
+                "rawCitation": raw or "",
+            }
+        )
+
+    return output
 
 
 # =============================================================================
@@ -392,6 +396,11 @@ def main() -> int:
         mongo_cfg = build_mongo_cfg(load_yaml(MONGO_CONFIG_PATH))
         provider_cfg = build_provider_cfg(load_yaml(PROVIDERS_CONFIG_PATH), PROVIDER_NAME, PROVIDER_KEY_NAME)
         prompt_cfg = build_prompt_cfg(load_yaml(PROMPTS_CONFIG_PATH), PROMPT_ID)
+        log(
+            "IA em uso | "
+            f"PROVIDER={PROVIDER_NAME} | PROVIDER_KEY_NAME={PROVIDER_KEY_NAME} | "
+            f"MODEL={provider_cfg.model} | Temperature={provider_cfg.temperature}"
+        )
         log(f"MongoDB config OK | database='{mongo_cfg.database}'")
         log(f"Provider OK | name='{provider_cfg.name}' | model='{provider_cfg.model}'")
         log(f"Prompt OK | id='{PROMPT_ID}'")
@@ -452,11 +461,10 @@ def main() -> int:
     log("Resposta da Mistral recebida:")
     print(content)
 
-    # Parsear JSON
+    # Parsear protocolo de linhas
     log("Processando resposta para gerar JSON estruturado")
     try:
-        parsed = parse_json_with_repair(content)
-        refs = normalize_doctrine_payload(parsed)
+        refs = parse_doctrine_protocol(content)
     except Exception as e:
         log(f"Erro ao parsear resposta: {e}")
         if doc_id is not None:

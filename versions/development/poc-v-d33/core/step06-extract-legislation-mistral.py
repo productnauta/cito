@@ -61,7 +61,7 @@ CASE_DATA_COLLECTION = "case_data"
 
 # Definir provider e prompt alterando apenas estas variaveis
 PROVIDER_NAME = "mistral"
-PROVIDER_KEY_NAME = "cito-dev-a"
+PROVIDER_KEY_NAME = "cito-dev-b"
 PROMPT_ID = "extract-legislation-from-md"
 
 
@@ -461,6 +461,11 @@ def main() -> int:
     try:
         provider_cfg = build_provider_cfg(load_yaml(PROVIDERS_CONFIG_PATH), PROVIDER_NAME, PROVIDER_KEY_NAME)
         prompt_cfg = build_prompt_cfg(load_yaml(PROMPTS_CONFIG_PATH), PROMPT_ID)
+        log(
+            "IA em uso | "
+            f"PROVIDER={PROVIDER_NAME} | PROVIDER_KEY_NAME={PROVIDER_KEY_NAME} | "
+            f"MODEL={provider_cfg.model} | Temperature={provider_cfg.temperature}"
+        )
     except Exception as e:
         log(f"Erro ao carregar configuracoes: {e}")
         return 1
