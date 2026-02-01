@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Extracts legislation references from caseContent.md.legislation and stores in caseData.
-Inputs: config/mongo.json, caseContent.md.legislation.
+Inputs: config/mongo.yaml, caseContent.md.legislation.
 Outputs: caseData.legislationReferences  processing/status updates.
 Pipeline: load document -> parse legislation -> persist references.
 Dependencies: pymongo
@@ -20,15 +20,18 @@ from __future__ import annotations
 import json
 import re
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+CORE_DIR = Path(__file__).resolve().parents[1]
+if str(CORE_DIR) not in sys.path:
+    sys.path.append(str(CORE_DIR))
+
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TIME
@@ -51,8 +54,8 @@ def utc_now() -> datetime:
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = CORE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 
 CASE_DATA_COLLECTION = "case_data"
 
@@ -60,42 +63,9 @@ OUTPUT_PIPELINE_STATUS = "legislationExtracted"
 ERROR_PIPELINE_STATUS = "legislationExtractError"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Config não encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    m = raw.get("mongo")
-    if not isinstance(m, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida.")
-
-    uri = str(m.get("uri") or "").strip()
-    db = str(m.get("database") or "").strip()
-
-    if not uri or not db:
-        raise ValueError("Config inválida: 'mongo.uri' ou 'mongo.database' vazio.")
-
-    return MongoCfg(uri=uri, database=db)
-
-
-def get_case_data_collection() -> Collection:
+def get_case_data_collection_local() -> Collection:
     log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    cfg = build_mongo_cfg(load_json(MONGO_CONFIG_PATH))
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-    client.admin.command("ping")
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{CASE_DATA_COLLECTION}'")
-    return client[cfg.database][CASE_DATA_COLLECTION]
+    return get_case_data_collection(MONGO_CONFIG_PATH, CASE_DATA_COLLECTION)
 
 
 # =============================================================================
@@ -393,7 +363,7 @@ def main() -> int:
     log("INFO", "ETAPA: EXTRAIR LEGISLAÇÃO (PYTHON)")
 
     try:
-        col = get_case_data_collection()
+        col = get_case_data_collection_local()
     except Exception as e:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1

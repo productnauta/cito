@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Orchestrates the pipeline for case_data documents missing processing.caseScrapeStatus.
-Inputs: Mongo config (config/mongo.json), case_data records, optional case URL override.
+Inputs: Mongo config (config/mongo.yaml), case_data records, optional case URL override.
 Outputs: Executes steps 02-08, logs progress, and relies on each step to persist results.
 Pipeline: get case HTML -> clean HTML -> extract sections -> parties/keywords -> legislation -> notes -> doctrine.
 Dependencies: pymongo
@@ -18,42 +18,25 @@ Dependencies: pymongo
 from __future__ import annotations
 
 import argparse
-import json
 import time
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from pymongo import MongoClient
+from utils.mongo import get_case_data_collection
 
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 # Delay entre execuções de stfDecisionId (em segundos).
 DELAY_BETWEEN_ITEMS_SECONDS = 10.0
 
 
-def _load_json(path: Path) -> Dict[str, Any]:
-    # Carrega JSON do disco com validação mínima.
-    if not path.exists():
-        raise FileNotFoundError(f"Config não encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def _get_case_data_collection():
-    # Conecta ao MongoDB usando config/mongo.json e retorna a collection case_data.
-    raw = _load_json(MONGO_CONFIG_PATH)
-    mongo = raw.get("mongo")
-    if not isinstance(mongo, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida.")
-    uri = str(mongo.get("uri") or "").strip()
-    database = str(mongo.get("database") or "").strip()
-    if not uri or not database:
-        raise ValueError("Config inválida: 'mongo.uri' ou 'mongo.database' vazio.")
-    client = MongoClient(uri)
-    return client[database]["case_data"]
+    # Conecta ao MongoDB usando config/mongo.yaml e retorna a collection case_data.
+    return get_case_data_collection(MONGO_CONFIG_PATH, "case_data")
 
 
 def _run_step(script: str, input_text: str) -> int:

@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Cleans the raw case HTML and extracts the main content container.
-Inputs: config/mongo.json, case_data.caseContent.caseHtml.
+Inputs: config/mongo.yaml, case_data.caseContent.caseHtml.
 Outputs: case_data.caseContent.caseHtmlClean + processing/status updates.
 Pipeline: load HTML -> extract main div -> persist clean HTML + metadata.
 Dependencies: pymongo beautifulsoup4
@@ -17,18 +17,16 @@ Dependencies: pymongo beautifulsoup4
 
 from __future__ import annotations
 
-import json
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from bs4 import BeautifulSoup
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TIME
@@ -51,52 +49,14 @@ def log(level: str, msg: str) -> None:
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 
 CASE_DATA_COLLECTION = "case_data"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Config nao encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    m = raw.get("mongo")
-    if not isinstance(m, dict):
-        raise ValueError("Config invalida: chave 'mongo' ausente ou invalida.")
-
-    uri = str(m.get("uri") or "").strip()
-    db = str(m.get("database") or "").strip()
-    if not uri:
-        raise ValueError("Config invalida: 'mongo.uri' vazio.")
-    if not db:
-        raise ValueError("Config invalida: 'mongo.database' vazio.")
-
-    return MongoCfg(uri=uri, database=db)
-
-
-def get_case_data_collection() -> Collection:
-    log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    raw = load_json(MONGO_CONFIG_PATH)
-    cfg = build_mongo_cfg(raw)
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-
-    log("STEP", "Validando conexao (ping)")
-    client.admin.command("ping")
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{CASE_DATA_COLLECTION}'")
-    return client[cfg.database][CASE_DATA_COLLECTION]
+def get_case_data_collection_local() -> Collection:
+    return get_case_data_collection(MONGO_CONFIG_PATH, CASE_DATA_COLLECTION)
 
 
 # =============================================================================
@@ -243,7 +203,7 @@ def main() -> int:
     log("INFO", "Iniciando etapa: SANITIZAR HTML DO PROCESSO (caseHtml -> caseHtmlClean)")
 
     try:
-        col = get_case_data_collection()
+        col = get_case_data_collection_local()
     except Exception as e:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1

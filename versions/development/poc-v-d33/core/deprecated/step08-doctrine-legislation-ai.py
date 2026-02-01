@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 -----------------------------------------------------------------------------------------------------
-Project: CITO                File: step07-extract-notes-groq.py
+Project: CITO                File: step08-doctrine-legislation-ai.py
 Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
-Description: Extracts references from notes via Groq and stores structured notes references.
-Inputs: config/mongo.json, config/ai-model.json, caseContent.md.notes.
-Outputs: caseData.notesReferences + processing/status updates.
-Pipeline: chunk text -> Groq extraction (retry/repair) -> persist notes references.
+Description: Extracts doctrinal citations via Groq and stores normalized doctrine references.
+Inputs: config/mongo.yaml, config/ai-model.json, caseContent.md.doctrine.
+Outputs: caseData.caseDoctrines + processing/status updates.
+Pipeline: chunk text -> Groq extraction (retry/repair) -> schema validation -> persist doctrines.
 Dependencies: pymongo groq
 ------------------------------------------------------------
 
@@ -26,9 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from groq import Groq
-from pymongo import MongoClient
 from pymongo.collection import Collection
 
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TEMPO
@@ -47,22 +47,22 @@ def utc_now() -> datetime:
 
 
 # =============================================================================
-# 1) CONFIG
+# 1) PATHS / CONSTANTS
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 AI_MODEL_CONFIG_PATH = CONFIG_DIR / "ai-model.json"
 
 CASE_DATA_COLLECTION = "case_data"
+EXPECTED_PROVIDER = "groq"
+EXPECTED_MODEL = "llama-3.1-8b-instant"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
+# =============================================================================
+# 2) CONFIG MODELS
+# =============================================================================
 
 @dataclass(frozen=True)
 class GroqCfg:
@@ -80,31 +80,20 @@ def load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    """Interpreta config/mongo.json."""
-    m = raw.get("mongo")
-    if not isinstance(m, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida.")
-    uri = str(m.get("uri") or "").strip()
-    db = str(m.get("database") or "").strip()
-    if not uri:
-        raise ValueError("Config inválida: 'mongo.uri' vazio.")
-    if not db:
-        raise ValueError("Config inválida: 'mongo.database' vazio.")
-    return MongoCfg(uri=uri, database=db)
-
-
 def build_groq_cfg(raw: Dict[str, Any]) -> GroqCfg:
-    """Interpreta config/ai-model.json."""
+    """Interpreta config/ai-model.json (provider groq)."""
     g = raw.get("groq")
     if not isinstance(g, dict):
         raise ValueError("Config inválida: provider 'groq' ausente em ai-model.json.")
+
     api_key = str(g.get("api_key") or "").strip()
     model = str(g.get("model") or "").strip()
+
     if not api_key:
         raise ValueError("Config inválida: 'groq.api_key' vazio.")
     if not model:
         raise ValueError("Config inválida: 'groq.model' vazio.")
+
     return GroqCfg(
         api_key=api_key,
         model=model,
@@ -114,81 +103,80 @@ def build_groq_cfg(raw: Dict[str, Any]) -> GroqCfg:
     )
 
 
-def get_case_data_collection() -> Collection:
-    """Cria conexão com MongoDB e retorna collection case_data."""
-    log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    raw = load_json(MONGO_CONFIG_PATH)
-    cfg = build_mongo_cfg(raw)
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{CASE_DATA_COLLECTION}'")
-    return client[cfg.database][CASE_DATA_COLLECTION]
+def get_case_data_collection_local() -> Collection:
+    """Conecta ao MongoDB e retorna a collection case_data."""
+    return get_case_data_collection(MONGO_CONFIG_PATH, CASE_DATA_COLLECTION)
 
 
 # =============================================================================
-# 2) PROMPT (EXTRAÇÃO DE REFERÊNCIAS EM NOTAS)
+# 3) PROMPTS (DOCTRINE EXTRACTION)
 # =============================================================================
 
-SYSTEM_PROMPT = """# ROLE
-Você é um extrator de dados jurídicos especializado em tribunais superiores e direito comparado. Sua tarefa é converter citações textuais em um JSON estruturado e rigoroso.
-
-# OUTPUT RULES
-- Retorne APENAS o objeto JSON.
-- Não inclua explicações ou blocos de Markdown fora do JSON.
-- Se um campo for inexistente, use `null`.
-- Mantenha a grafia original em `rawLine` e `rawRef`.
-
-# EXTRACTION LOGIC & MAPPING
-1. **Categorização (noteType):**
-   - "Acórdãos citados" -> `stf_acordao`
-   - "Decisão monocrática" -> `stf_monocratica`
-   - "Decisões de outros tribunais" -> `outros_tribunais`
-   - "Legislação estrangeira" -> `legislacao_estrangeira`
-   - "Decisões estrangeiras" -> `decisao_estrangeira`
-   - Referências iniciadas por "Veja" ou "Cf." -> `veja`
-
-2. **Parsing de Itens (Brasil):**
-   - **caseClass:** Sigla da classe (ex: ADI, RE, HC, ADPF).
-   - **caseNumber:** Apenas os dígitos numéricos.
-   - **suffix:** Siglas acessórias (ex: MC, QO, AgR, ED, RG).
-   - **orgTag:** Órgão julgador, se houver (ex: TP, 1ªT).
-
-3. **Tratamento Especial:**
-   - Documentos da ONU, Tratados, Planos ou Recomendações do CNJ -> `itemType: "treaty_or_recommendation"`.
-   - Citações de Revistas (ex: RTJ 63/299) -> `itemType: "legal_journal"`.
-
-# JSON SCHEMA
-{
-  "caseData": {
-    "notesReferences": [
-      {
-        "noteType": "string",
-        "rawLine": "string",
-        "items": [
-          {
-            "itemType": "decision | legislation | treaty_or_recommendation | legal_journal",
-            "caseClass": "string | null",
-            "caseNumber": "string | null",
-            "suffix": "string | null",
-            "orgTag": "string | null",
-            "country": "string | null",
-            "rawRef": "string"
-          }
-        ]
-      }
-    ]
-  }
-}
-"""
+SYSTEM_PROMPT = (
+    "Você é um agente especializado em extração estruturada de citações doutrinárias\n"
+    "a partir de textos jurídicos em português brasileiro.\n\n"
+    "Objetivo: identificar, separar e normalizar CADA citação doutrinária do texto.\n\n"
+    "REGRAS:\n\n"
+    "1) Separação de citações\n"
+    "- Cada item pode estar separado por quebra de linha, ponto final, ou conter múltiplas citações na mesma linha.\n"
+    "- Se houver duas citações coladas (ex.: termina em \"p. X.\" e já inicia outro AUTOR), separe em itens distintos.\n\n"
+    "2) Campos a extrair (por citação)\n"
+    "- author: autor(es) conforme aparece(m)\n"
+    "- publicationTitle: título do documento citado (livro, artigo, capítulo, verbete, peça etc.)\n"
+    "- edition: edição (ex.: \"4 ed\"), se existir\n"
+    "- publicationPlace: local\n"
+    "- publisher: editora\n"
+    "- year: ano (int, 4 dígitos) ou null se ausente/ambíguo\n"
+    "- page: páginas citadas (ex.: \"181\", \"233-234\", \"233-234 e 1.561\") ou null\n"
+    "- rawCitation: citação original completa (exatamente o trecho do input)\n\n"
+    "3) Regras específicas — capítulo / obra coletiva\n"
+    "Quando a citação tiver padrão do tipo:\n"
+    "- \"Título do capítulo. p. X-Y. In: Título do livro/obra coletiva. (Org./Coord./Ed.). Local: Editora, Ano.\"\n"
+    "Faça:\n"
+    "- author = autor(es) antes do primeiro ponto (ou conforme padrão autor)\n"
+    "- publicationTitle = título do capítulo (o que vem antes do \"In:\")\n"
+    "- edition = null (a menos que exista explicitamente para a obra onde a edição é indicada)\n"
+    "- publicationPlace / publisher / year = preferencialmente os dados da obra coletiva (após \"In:\")\n"
+    "- page = páginas do capítulo (normalmente após \"p.\")\n"
+    "- NÃO crie novos campos (ex.: não adicionar \"containerTitle\", \"organizer\", \"coordinator\").\n"
+    "  Se houver organizador/coordenador, apenas ignore ou mantenha dentro de rawCitation.\n\n"
+    "4) Normalização\n"
+    "- Não invente dados ausentes → use null\n"
+    "- Preserve acentos e grafia original\n"
+    "- Não traduza títulos\n"
+    "- Não “conserte” nomes\n"
+    "- Se houver múltiplos autores, preserve como aparece (ex.: \"AUTOR1; AUTOR2\")\n\n"
+    "5) Escopo\n"
+    "- Extrair somente DOUTRINA (livros, capítulos, artigos, obras)\n"
+    "- Ignorar legislação, jurisprudência, notas editoriais não bibliográficas\n\n"
+    "6) Saída\n"
+    "- Responda APENAS JSON válido\n"
+    "- Sem markdown, sem comentários, sem texto extra\n"
+    "- Use EXATAMENTE o schema abaixo:\n\n"
+    "{\n"
+    "  \"caseData\": {\n"
+    "    \"caseDoctrines\": [\n"
+    "      {\n"
+    "        \"author\": \"string\",\n"
+    "        \"publicationTitle\": \"string\",\n"
+    "        \"edition\": \"string|null\",\n"
+    "        \"publicationPlace\": \"string|null\",\n"
+    "        \"publisher\": \"string|null\",\n"
+    "        \"year\": 0,\n"
+    "        \"page\": \"string|null\",\n"
+    "        \"rawCitation\": \"string\"\n"
+    "      }\n"
+    "    ]\n"
+    "  }\n"
+    "}\n"
+)
 
 # Prompt mais rígido para retry quando houver erro de parsing/JSON inválido.
 STRICT_SYSTEM_PROMPT = SYSTEM_PROMPT + (
     "\n# OUTPUT STRICT\n"
     "- Responda APENAS com JSON válido.\n"
     "- Não use Markdown, não use texto fora do JSON.\n"
-    "- Certifique-se de que todas as vírgulas e aspas estejam corretas.\n"
+    "- Verifique vírgulas e aspas.\n"
 )
 
 # Prompt ainda mais rígido: JSON estrito e minificado.
@@ -197,39 +185,32 @@ STRICT_MINIFIED_SYSTEM_PROMPT = STRICT_SYSTEM_PROMPT + (
 )
 
 
-def build_user_prompt(notes_text: str) -> str:
-    """Prompt do usuário com instrução de segmentação (itens distintos)."""
+def build_user_prompt(doctrine_text: str) -> str:
+    """Monta o prompt do usuário inserindo o texto de Doutrina."""
     return (
-        "Extraia as citações do texto abaixo seguindo o SCHEMA definido. \n"
-        'Atenção: Separe cada citação individualmente (ex: "ADPF 54 MC" e "ADPF 54 QO" são dois itens distintos).\n\n'
-        "TEXTO PARA ANÁLISE:\n"
-        f"{notes_text}"
+        "Extraia todas as citações doutrinárias do texto abaixo e retorne APENAS o JSON no schema solicitado.\n\n"
+        "TEXTO:\n"
+        f"{doctrine_text}\n"
     )
 
 
-def build_strict_user_prompt(notes_text: str) -> str:
+def build_strict_user_prompt(doctrine_text: str) -> str:
     """Prompt do usuário para retry, reforçando JSON válido."""
-    return (
-        "RETORNE APENAS JSON VÁLIDO. NÃO inclua Markdown ou qualquer texto extra.\n\n"
-        + build_user_prompt(notes_text)
-    )
+    return "RETORNE APENAS JSON VÁLIDO.\n\n" + build_user_prompt(doctrine_text)
 
 
-def build_minified_user_prompt(notes_text: str) -> str:
+def build_minified_user_prompt(doctrine_text: str) -> str:
     """Prompt do usuário para retry com JSON minificado."""
-    return (
-        "RETORNE APENAS JSON VÁLIDO EM UMA ÚNICA LINHA (MINIFICADO).\n\n"
-        + build_user_prompt(notes_text)
-    )
+    return "RETORNE APENAS JSON VÁLIDO EM UMA ÚNICA LINHA (MINIFICADO).\n\n" + build_user_prompt(doctrine_text)
 
 
 # =============================================================================
-# 3) GROQ CALL
+# 4) GROQ CALL
 # =============================================================================
 
 def call_groq(
     cfg: GroqCfg,
-    notes_text: str,
+    doctrine_text: str,
     *,
     system_prompt: Optional[str] = None,
     user_prompt: Optional[str] = None,
@@ -238,11 +219,12 @@ def call_groq(
     client = Groq(api_key=cfg.api_key)
 
     system_prompt = system_prompt or SYSTEM_PROMPT
-    user_prompt = user_prompt or build_user_prompt(notes_text)
+    user_prompt = user_prompt or build_user_prompt(doctrine_text)
 
     last_err: Optional[Exception] = None
     for attempt in range(1, cfg.retries + 1):
         if cfg.api_delay_seconds and attempt > 1:
+            log("STEP", f"Aguardando api_delay_seconds={cfg.api_delay_seconds}s antes do retry")
             time.sleep(cfg.api_delay_seconds)
 
         try:
@@ -271,13 +253,13 @@ def call_groq(
 
 
 # =============================================================================
-# 4) PARSE + PERSIST
+# 5) PARSE + VALIDATION
 # =============================================================================
 
 def extract_json_from_text(text: str) -> Dict[str, Any]:
     """
     Extrai o primeiro objeto JSON encontrado na resposta.
-    Suporta respostas indevidas com code fences.
+    Tolera respostas indevidas com code fences.
     """
     s = (text or "").strip()
     if not s:
@@ -309,25 +291,20 @@ def _repair_json_text(text: str) -> Optional[str]:
     if not s:
         return None
 
-    # Remove cercas de código ```json ... ```
     if s.startswith("```"):
         s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
         s = re.sub(r"\s*```$", "", s)
 
-    # Isola conteúdo entre a primeira { e a última }
     first = s.find("{")
     last = s.rfind("}")
     if first == -1 or last == -1 or last <= first:
         return None
-    candidate = s[first:last + 1].strip()
 
-    # Remove "json" prefixado no começo
+    candidate = s[first:last + 1].strip()
     if candidate.lower().startswith("json"):
         candidate = candidate[4:].strip()
 
-    # Remove vírgulas sobrando antes de } ou ]
     candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-
     return candidate
 
 
@@ -350,7 +327,7 @@ def _aggressive_repair_json_text(text: str) -> Optional[str]:
 def parse_json_with_repair(text: str) -> Dict[str, Any]:
     """Parseia JSON tentando reparos simples antes de falhar."""
     try:
-        return extract_json_from_text(text)
+        parsed = extract_json_from_text(text)
     except Exception:
         repaired = _repair_json_text(text)
         if repaired:
@@ -360,22 +337,15 @@ def parse_json_with_repair(text: str) -> Dict[str, Any]:
             if not aggressive:
                 raise
             parsed = json.loads(aggressive)
-        if not isinstance(parsed, dict):
-            raise ValueError("JSON reparado não é um objeto.")
-        return parsed
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON parseado não é um objeto.")
+    return parsed
 
 
-def parse_and_validate_notes(content: str) -> List[Dict[str, Any]]:
+def parse_and_validate_doctrines(content: str) -> List[Dict[str, Any]]:
     """Extrai JSON da resposta e valida o schema esperado."""
     parsed = parse_json_with_repair(content)
-    case_data = parsed.get("caseData") if isinstance(parsed, dict) else None
-    if not isinstance(case_data, dict):
-        raise ValueError("JSON não contém objeto 'caseData'.")
-
-    notes_refs = case_data.get("notesReferences")
-    if not isinstance(notes_refs, list):
-        raise ValueError("JSON não contém 'caseData.notesReferences' como lista.")
-    return notes_refs
+    return validate_schema(parsed)
 
 
 def _split_text_in_chunks(text: str, max_chars: int = 1500) -> List[str]:
@@ -413,7 +383,7 @@ def _run_groq_with_retries(
     message = completion.choices[0].message
     content = message.content if hasattr(message, "content") else str(message)
     try:
-        return parse_and_validate_notes(content)
+        return parse_and_validate_doctrines(content)
     except Exception as e:
         log("WARN", f"Falha ao processar resposta da IA: {e}")
 
@@ -427,7 +397,7 @@ def _run_groq_with_retries(
     message = completion_retry.choices[0].message
     content = message.content if hasattr(message, "content") else str(message)
     try:
-        return parse_and_validate_notes(content)
+        return parse_and_validate_doctrines(content)
     except Exception as e_retry:
         log("WARN", f"Falha ao processar resposta da IA após retry: {e_retry}")
 
@@ -440,53 +410,117 @@ def _run_groq_with_retries(
     )
     message = completion_retry2.choices[0].message
     content = message.content if hasattr(message, "content") else str(message)
-    return parse_and_validate_notes(content)
+    return parse_and_validate_doctrines(content)
 
 
-def count_items(notes_references: List[Dict[str, Any]]) -> Tuple[int, int]:
+def _is_str_or_none(v: Any) -> bool:
+    return v is None or isinstance(v, str)
+
+
+def _is_int_year_or_none(v: Any) -> bool:
+    if v is None:
+        return True
+    if not isinstance(v, int):
+        return False
+    return 1000 <= v <= 2100
+
+
+def validate_schema(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Retorna:
-    - total_notes: quantidade de blocos noteType/rawLine (len(notesReferences))
-    - total_items: soma de items dentro de cada bloco
+    Valida o schema:
+    {
+      "caseData": {
+        "caseDoctrines": [ { ... } ]
+      }
+    }
+    Retorna a lista caseDoctrines já validada.
     """
-    total_notes = len(notes_references)
-    total_items = 0
-    for entry in notes_references:
-        items = entry.get("items")
-        if isinstance(items, list):
-            total_items += len(items)
-    return total_notes, total_items
+    if not isinstance(payload, dict):
+        raise ValueError("Payload não é objeto JSON.")
 
+    case_data = payload.get("caseData")
+    if not isinstance(case_data, dict):
+        raise ValueError("JSON não contém objeto 'caseData'.")
+
+    doctrines = case_data.get("caseDoctrines")
+    if not isinstance(doctrines, list):
+        raise ValueError("JSON não contém 'caseData.caseDoctrines' como lista.")
+
+    required_keys = {
+        "author",
+        "publicationTitle",
+        "edition",
+        "publicationPlace",
+        "publisher",
+        "year",
+        "page",
+        "rawCitation",
+    }
+
+    for i, item in enumerate(doctrines):
+        if not isinstance(item, dict):
+            raise ValueError(f"caseDoctrines[{i}] não é objeto.")
+        missing = [k for k in required_keys if k not in item]
+        if missing:
+            raise ValueError(f"caseDoctrines[{i}] faltando campos: {missing}")
+
+        if not isinstance(item.get("author"), str) or not item["author"].strip():
+            raise ValueError(f"caseDoctrines[{i}].author inválido.")
+        if not isinstance(item.get("publicationTitle"), str) or not item["publicationTitle"].strip():
+            raise ValueError(f"caseDoctrines[{i}].publicationTitle inválido.")
+        if not _is_str_or_none(item.get("edition")):
+            raise ValueError(f"caseDoctrines[{i}].edition deve ser string ou null.")
+        if not _is_str_or_none(item.get("publicationPlace")):
+            raise ValueError(f"caseDoctrines[{i}].publicationPlace deve ser string ou null.")
+        if not _is_str_or_none(item.get("publisher")):
+            raise ValueError(f"caseDoctrines[{i}].publisher deve ser string ou null.")
+        if not _is_int_year_or_none(item.get("year")):
+            raise ValueError(f"caseDoctrines[{i}].year deve ser int(4 dígitos) ou null.")
+        if not _is_str_or_none(item.get("page")):
+            raise ValueError(f"caseDoctrines[{i}].page deve ser string ou null.")
+        if not isinstance(item.get("rawCitation"), str) or not item["rawCitation"].strip():
+            raise ValueError(f"caseDoctrines[{i}].rawCitation inválido.")
+
+    return doctrines
+
+
+def count_doctrines(doctrines: List[Dict[str, Any]]) -> int:
+    return len(doctrines)
+
+
+# =============================================================================
+# 6) PERSISTENCE
+# =============================================================================
 
 def persist_success(
     col: Collection,
     doc_id: Any,
     *,
-    notes_references: List[Dict[str, Any]],
+    doctrines: List[Dict[str, Any]],
     provider: str,
     model: str,
     latency_ms: int,
 ) -> None:
-    """Persiste sucesso com audit + processing + status."""
+    """Persiste o array em caseData.caseDoctrines + metadados de processing/audit/status."""
     update = {
         # payload final
-        "caseData.notesReferences": notes_references,
+        "caseData.caseDoctrines": doctrines,
 
         # processing
-        "processing.caseNotesRefsStatus": "success",
-        "processing.caseNotesRefsError": None,
-        "processing.caseNotesRefsAt": utc_now(),
-        "processing.caseNotesRefsProvider": provider,
-        "processing.caseNotesRefsModel": model,
-        "processing.caseNotesRefsLatencyMs": latency_ms,
-        "processing.pipelineStatus": "notesReferencesExtracted",
+        "processing.caseDoctrineStatus": "success",
+        "processing.caseDoctrineError": None,
+        "processing.caseDoctrineAt": utc_now(),
+        "processing.caseDoctrineProvider": provider,
+        "processing.caseDoctrineModel": model,
+        "processing.caseDoctrineLatencyMs": latency_ms,
+        "processing.caseDoctrineCount": len(doctrines),
+        "processing.pipelineStatus": "doctrineExtracted",
 
         # audit
         "audit.updatedAt": utc_now(),
 
         # status (pipeline)
-        # Observação: mantém um status coerente para a etapa; ajuste conforme sua máquina de estados.
-        "status.pipelineStatus": "notesReferencesExtracted",
+        "status.pipelineStatus": "doctrineExtracted",
     }
     col.update_one({"_id": doc_id}, {"$set": update})
 
@@ -499,30 +533,30 @@ def persist_error(
     provider: str,
     model: str,
 ) -> None:
-    """Persiste erro com audit + processing (sem destruir dados existentes)."""
+    """Persiste erro em processing/audit (sem destruir dados existentes)."""
     update = {
-        "processing.caseNotesRefsStatus": "error",
-        "processing.caseNotesRefsError": err,
-        "processing.caseNotesRefsAt": utc_now(),
-        "processing.caseNotesRefsProvider": provider,
-        "processing.caseNotesRefsModel": model,
-        "processing.pipelineStatus": "notesReferencesExtractError",
+        "processing.caseDoctrineStatus": "error",
+        "processing.caseDoctrineError": err,
+        "processing.caseDoctrineAt": utc_now(),
+        "processing.caseDoctrineProvider": provider,
+        "processing.caseDoctrineModel": model,
+        "processing.pipelineStatus": "doctrineExtractError",
         "audit.updatedAt": utc_now(),
-        "status.pipelineStatus": "notesReferencesExtractError",
+        "status.pipelineStatus": "doctrineExtractError",
     }
     col.update_one({"_id": doc_id}, {"$set": update})
 
 
 # =============================================================================
-# 5) MAIN
+# 7) MAIN
 # =============================================================================
 
 def main() -> int:
-    log("INFO", "Iniciando extração de referências (notes) via Groq")
+    log("INFO", "Iniciando extração de citações doutrinárias (doctrine) via Groq")
 
     # Mongo
     try:
-        col = get_case_data_collection()
+        col = get_case_data_collection_local()
     except Exception as e:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1
@@ -534,6 +568,18 @@ def main() -> int:
     except Exception as e:
         log("ERROR", f"Falha ao carregar config Groq: {e}")
         return 1
+
+    # Força/valida provider e model conforme requisito
+    if groq_cfg.model != EXPECTED_MODEL:
+        log("WARN", f"Modelo em config difere do esperado: config='{groq_cfg.model}' esperado='{EXPECTED_MODEL}'")
+        # Mantém o requisito: usar llama-3.1-8b-instant
+        groq_cfg = GroqCfg(
+            api_key=groq_cfg.api_key,
+            model=EXPECTED_MODEL,
+            request_timeout_seconds=groq_cfg.request_timeout_seconds,
+            retries=groq_cfg.retries,
+            api_delay_seconds=groq_cfg.api_delay_seconds,
+        )
 
     # Input: identity.stfDecisionId
     stf_decision_id = input("Informe o identity.stfDecisionId: ").strip()
@@ -548,7 +594,7 @@ def main() -> int:
         projection={
             "identity.stfDecisionId": 1,
             "caseTitle": 1,
-            "caseContent.md.notes": 1,
+            "caseContent.md.doctrine": 1,
         },
     )
 
@@ -556,47 +602,53 @@ def main() -> int:
         log("WARN", f"Nenhum documento encontrado para identity.stfDecisionId='{stf_decision_id}'")
         return 1
 
+    doc_id = doc.get("_id")
     title = (doc.get("caseTitle") or "").strip()
-    log("OK", f"Documento encontrado: '{title or '(sem título)'}' | _id={doc.get('_id')}")
+    log("OK", f"Documento encontrado: '{title or '(sem título)'}' | _id={doc_id}")
 
-    notes_text = (((doc.get("caseContent") or {}).get("md") or {}).get("notes") or "").strip()
-    if not notes_text:
-        log("WARN", "Campo caseContent.md.notes vazio. Nada a processar.")
+    doctrine_text = (((doc.get("caseContent") or {}).get("md") or {}).get("doctrine") or "").strip()
+    if not doctrine_text:
+        log("WARN", "Campo caseContent.md.doctrine vazio. Nada a processar.")
         return 1
 
-    chunks = _split_text_in_chunks(notes_text, max_chars=1500)
+    chunks = _split_text_in_chunks(doctrine_text, max_chars=1500)
     if not chunks:
-        log("WARN", "Texto de notes vazio após normalização.")
+        log("WARN", "Texto de doctrine vazio após normalização.")
         return 1
 
     log("STEP", f"Processando em blocos menores | chunks={len(chunks)}")
-    all_notes: List[Dict[str, Any]] = []
+    all_doctrines: List[Dict[str, Any]] = []
     started = time.time()
     try:
         for i, chunk in enumerate(chunks, start=1):
-            log("STEP", f"Enviando bloco {i}/{len(chunks)} para Groq | chars={len(chunk)}")
-            notes_refs = _run_groq_with_retries(groq_cfg, chunk)
-            all_notes.extend(notes_refs)
+            log(
+                "STEP",
+                f"Enviando bloco {i}/{len(chunks)} para Groq | chars={len(chunk)} | model='{groq_cfg.model}'",
+            )
+            doctrines = _run_groq_with_retries(groq_cfg, chunk)
+            all_doctrines.extend(doctrines)
 
         elapsed_ms = int((time.time() - started) * 1000)
+        log("STEP", "Persistindo em caseData.caseDoctrines")
         persist_success(
             col,
-            doc.get("_id"),
-            notes_references=all_notes,
-            provider="groq",
+            doc_id,
+            doctrines=all_doctrines,
+            provider=EXPECTED_PROVIDER,
             model=groq_cfg.model,
             latency_ms=elapsed_ms,
         )
 
-        total_notes, total_items = count_items(all_notes)
-        log("OK", "Resposta recebida e persistida no MongoDB")
-        log("INFO", f"Blocos (notesReferences): {total_notes}")
-        log("INFO", f"Itens totais (soma de items): {total_items}")
+        log("OK", "Persistência concluída")
+        log("INFO", f"Total de citações (caseDoctrines): {count_doctrines(all_doctrines)}")
+        log("INFO", "Status pipeline atualizado: status.pipelineStatus='doctrineExtracted'")
         return 0
+
     except Exception as e:
         err = str(e)
         log("ERROR", f"Falha ao processar resposta da IA após blocos: {err}")
-        persist_error(col, doc.get("_id"), err=err, provider="groq", model=groq_cfg.model)
+        if doc_id is not None:
+            persist_error(col, doc_id, err=err, provider=EXPECTED_PROVIDER, model=groq_cfg.model)
         return 1
 
 

@@ -1,5 +1,6 @@
 pymongo
 requests
+pyyaml
 certifi
 beautifulsoup4
 markdownify

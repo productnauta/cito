@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Extracts STF search result cards from case_query.htmlRaw into case_data documents.
-Inputs: config/mongo.json, optional config/query.json, case_query records with htmlRaw.
+Inputs: config/mongo.yaml, optional config/query.json, case_query records with htmlRaw.
 Outputs: case_data records with identity metadata; updates case_query status pipeline.
 Pipeline: claim case_query -> parse result cards -> upsert case_data -> update case_query status.
 Dependencies: pymongo beautifulsoup4
@@ -28,19 +28,20 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
 from bs4 import BeautifulSoup
-from pymongo import MongoClient, ReturnDocument
+from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from utils.mongo import get_mongo_client, load_yaml
 
 # =============================================================================
 # 0) PATHS CONFIG
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = BASE_DIR.parent / "config"
 
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 QUERY_CONFIG_PATH = CONFIG_DIR / "query.json"
 
 
@@ -91,7 +92,7 @@ class MongoCfg:
 
 def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
     """
-    Interpreta mongo.json.
+    Interpreta mongo.yaml.
 
     Estrutura suportada:
 
@@ -117,7 +118,7 @@ def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
     uri = str(m.get("uri") or "").strip()
     database = str(m.get("database") or "").strip()
     if not uri or not database:
-        raise ValueError("mongo.json inválido: campos obrigatórios 'mongo.uri' e 'mongo.database'")
+        raise ValueError("mongo.yaml inválido: campos obrigatórios 'mongo.uri' e 'mongo.database'")
 
     collections = m.get("collections", {}) if isinstance(m.get("collections"), dict) else {}
     statuses = m.get("pipeline_status", {}) if isinstance(m.get("pipeline_status"), dict) else {}
@@ -188,9 +189,9 @@ def _subdoc_if_any(pairs: List[Tuple[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def get_collections(cfg: MongoCfg) -> Tuple[Collection, Collection]:
     log("INFO", "Conectando ao MongoDB...")
-    client = MongoClient(cfg.uri)
-    db = client[cfg.database]
-    log("INFO", f"MongoDB conectado | db='{cfg.database}'")
+    client, db_name = get_mongo_client(MONGO_CONFIG_PATH)
+    db = client[db_name]
+    log("INFO", f"MongoDB conectado | db='{db_name}'")
     log("INFO", f"Collections | case_query='{cfg.case_query_collection}' | case_data='{cfg.case_data_collection}'")
     return db[cfg.case_query_collection], db[cfg.case_data_collection]
 
@@ -525,10 +526,10 @@ def upsert_case_data(case_col: Collection, *, doc: Dict[str, Any], stf_decision_
 def main() -> int:
     total_steps = 8
 
-    step(1, total_steps, "Carregando configurações (mongo.json / query.json)")
-    mongo_raw = load_json(MONGO_CONFIG_PATH)
+    step(1, total_steps, "Carregando configurações (mongo.yaml / query.json)")
+    mongo_raw = load_yaml(MONGO_CONFIG_PATH)
     mongo_cfg = build_mongo_cfg(mongo_raw)
-    log("INFO", f"mongo.json OK | db='{mongo_cfg.database}'")
+    log("INFO", f"mongo.yaml OK | db='{mongo_cfg.database}'")
 
     try:
         _ = load_json(QUERY_CONFIG_PATH)
