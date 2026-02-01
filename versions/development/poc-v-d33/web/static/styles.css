@@ -70,6 +70,27 @@ a:hover {
   line-height: 1.5;
 }
 
+.hero-nav {
+  display: flex;
+  gap: 14px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.hero-nav a {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.hero-nav a:hover {
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.32);
+}
+
 .content {
   margin-top: 28px;
   display: flex;
@@ -130,6 +151,14 @@ a:hover {
   font-size: 14px;
 }
 
+.field select {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  background: #ffffff;
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -163,6 +192,28 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 24px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
 }
 
 table {

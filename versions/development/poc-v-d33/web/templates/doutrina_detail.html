@@ -19,10 +19,10 @@
         <thead>
           <tr>
             <th>Titulo do processo</th>
-            <th>STF ID</th>
             <th>Data julgamento</th>
-            <th>Relator</th>
             <th>Orgao julgador</th>
+            <th>Decisao final</th>
+            <th>Voto</th>
             <th>Link</th>
           </tr>
         </thead>
@@ -30,10 +30,10 @@
           {% for item in cases %}
             <tr>
               <td>{{ item.case_title }}</td>
-              <td>{{ item.stf_id }}</td>
               <td>{{ item.judgment_date }}</td>
-              <td>{{ item.rapporteur }}</td>
               <td>{{ item.judging_body }}</td>
+              <td>{{ item.decision_final }}</td>
+              <td>{{ item.vote_type }}</td>
               <td>
                 {% if item.case_url %}
                   <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>
@@ -45,6 +45,16 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if show_more %}
+        <div class="actions">
+          <a
+            class="secondary"
+            href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
+          >
+            Ver mais
+          </a>
+        </div>
+      {% endif %}
     {% else %}
       <p class="empty">Nenhum processo encontrado para este filtro.</p>
     {% endif %}

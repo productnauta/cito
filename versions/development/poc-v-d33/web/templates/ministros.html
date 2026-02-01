@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Interface 2: Ministros</h1>
+      <span class="chip">Ministros: {{ total_ministers }}</span>
+    </div>
+    <p class="panel-copy">
+      Visao comparativa de ministros, com filtros combinaveis para classes, datas e processos.
+    </p>
+    <form class="filters" method="get">
+      <label class="field">
+        <span>Ministro</span>
+        <select name="minister">
+          <option value="">Todos</option>
+          {% for name in minister_options %}
+            <option value="{{ name }}" {% if filters.minister == name %}selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Classe</span>
+        <select name="case_class">
+          <option value="">Todas</option>
+          {% for value in class_options %}
+            <option value="{{ value }}" {% if filters.case_class == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Data inicial</span>
+        <input type="date" name="date_start" value="{{ filters.date_start }}" />
+      </label>
+      <label class="field">
+        <span>Data final</span>
+        <input type="date" name="date_end" value="{{ filters.date_end }}" />
+      </label>
+      <label class="field">
+        <span>Processo</span>
+        <input type="text" name="process" value="{{ filters.process }}" placeholder="Codigo ou numero" />
+      </label>
+      <div class="actions">
+        <button type="submit">Aplicar filtros</button>
+        <a class="secondary" href="{{ url_for('ministros') }}">Limpar</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    {% if ministers %}
+      <table>
+        <thead>
+          <tr>
+            <th>Ministro</th>
+            <th>Total de processos</th>
+            <th>Total de relatorias</th>
+            <th>Citado em</th>
+            <th>Total voto vencido</th>
+            <th>Total voto definido</th>
+            <th>Total voto pendefinido</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ministers %}
+            <tr>
+              <td>
+                <a href="{{ url_for('ministro_detail', minister=row.minister, **filter_params_no_minister) }}">
+                  {{ row.minister }}
+                </a>
+              </td>
+              <td>{{ row.total_processes }}</td>
+              <td>{{ row.total_relatorias }}</td>
+              <td>{{ row.citations_total }}</td>
+              <td>{{ row.total_votes_vencido }}</td>
+              <td>{{ row.total_votes_defined }}</td>
+              <td>{{ row.total_votes_pending }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if show_more %}
+        <div class="actions">
+          <a class="secondary" href="{{ url_for('ministros', limit=next_limit, **filter_params) }}">Ver mais</a>
+        </div>
+      {% endif %}
+    {% else %}
+      <p class="empty">Nenhum ministro encontrado para os filtros atuais.</p>
+    {% endif %}
+  </section>
+{% endblock %}
