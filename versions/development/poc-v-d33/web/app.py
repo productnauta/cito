@@ -98,8 +98,8 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
         and_clauses.append(
             {
                 "$or": [
-                    {"identity.caseClassDetail": rx},
-                    {"caseIdentification.caseClassDetail": rx},
+                    {"identity.caseClass": rx},
+                    {"caseIdentification.caseClass": rx},
                 ]
             }
         )
@@ -274,7 +274,7 @@ def _fetch_cases(collection: Collection, match: Dict[str, Any]) -> List[Dict[str
         rapporteur = identity.get("rapporteur") or case_ident.get("rapporteur") or "-"
         judging_body = identity.get("judgingBody") or case_ident.get("judgingBody") or "-"
         case_url = case_content.get("caseUrl") or identity.get("caseUrl") or ""
-        judgment_date = _format_date(dates.get("judgmentDate") or identity.get("judgmentDate"))
+        judgment_date = _format_date(dates.get("judgmentDate"))
 
         cases.append(
             {

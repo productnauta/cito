@@ -5,9 +5,6 @@
   "identity": {
     "stfDecisionId": "sjur467997",
     "caseQueryId": "697f4a66461d8277295c80e5",
-    "caseCode": "ADI 5331",
-    "caseClassDetail": "ADI",
-    "caseNumberDetail": "5331",
     "caseTitle": "ADI 5331",
     "caseUrl": "https://jurisprudencia.stf.jus.br/pages/search/sjur467997/false",
     "caseClass": "ADI",
@@ -15,9 +12,7 @@
     "judgingBody": "Tribunal Pleno",
     "rapporteur": "Tribunal Pleno",
     "opinionWriter": "Tribunal Pleno",
-    "judgmentDate": "06/06/2022",
-    "publicationDate": "06/06/2022",
-    "domResultContainerId": "result-index-32"
+    "domClipboardId": "clipboard-1"
   },
   "audit": {
     "extractionDate": {
@@ -201,11 +196,6 @@
     "caseDecisionDetailsModel": "mistral-large-latest",
     "caseDecisionDetailsProvider": "mistral",
     "caseDecisionDetailsStatus": "success"
-  },
-  "query": {
-    "queryString": "inconstitucional",
-    "pageSize": 100,
-    "inteiroTeor": true
   },
   "status": {
     "pipelineStatus": "decisionDetailsExtracted",

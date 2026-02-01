@@ -11,26 +11,17 @@
           "required": [
             "stfDecisionId",
             "caseQueryId",
-            "caseCode",
-            "caseClassDetail",
-            "caseNumberDetail",
             "caseTitle",
             "caseUrl",
             "caseClass",
             "caseNumber",
             "judgingBody",
-            "rapporteur",
-            "judgmentDate",
-            "publicationDate",
-            "domResultContainerId"
+            "rapporteur"
           ],
           "additionalProperties": true,
           "properties": {
             "stfDecisionId": { "bsonType": "string", "minLength": 1 },
             "caseQueryId": { "bsonType": "string", "minLength": 1 },
-            "caseCode": { "bsonType": "string", "minLength": 1 },
-            "caseClassDetail": { "bsonType": "string", "minLength": 1 },
-            "caseNumberDetail": { "bsonType": "string", "minLength": 1 },
             "caseTitle": { "bsonType": "string", "minLength": 1 },
             "caseUrl": {
               "bsonType": "string",
@@ -41,15 +32,7 @@
             "judgingBody": { "bsonType": "string", "minLength": 1 },
             "rapporteur": { "bsonType": "string", "minLength": 1 },
             "opinionWriter": { "bsonType": "string", "minLength": 1 },
-            "judgmentDate": {
-              "bsonType": "string",
-              "pattern": "^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}$"
-            },
-            "publicationDate": {
-              "bsonType": "string",
-              "pattern": "^(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[0-2])/[0-9]{4}$"
-            },
-            "domResultContainerId": { "bsonType": "string", "minLength": 1 }
+            "domClipboardId": { "bsonType": "string", "minLength": 1 }
           }
         },
 
@@ -120,15 +103,6 @@
           "properties": {
             "judgmentDate": { "bsonType": ["string", "date"] },
             "publicationDate": { "bsonType": ["string", "date"] }
-          }
-        },
-        "query": {
-          "bsonType": "object",
-          "additionalProperties": true,
-          "properties": {
-            "queryString": { "bsonType": "string" },
-            "pageSize": { "bsonType": "int" },
-            "inteiroTeor": { "bsonType": "bool" }
           }
         },
         "caseData": {

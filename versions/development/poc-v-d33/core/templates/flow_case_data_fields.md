@@ -27,5 +27,4 @@ graph TD
 
 ## Observacoes
 - Campos `dates` e `caseTitle` aparecem como redundancias/atalhos para consulta e nao sao diretamente produzidos por um step especifico.
-- `query.*` e preenchido quando a origem do documento vem de uma consulta (ex.: extracao por termo).
 - Em caso de erro em cada step, os campos de `processing.*Error` e `processing.pipelineStatus` recebem o status de erro correspondente.

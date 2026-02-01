@@ -5,9 +5,6 @@
   "identity": {
     "stfDecisionId": "sjur492627",
     "caseQueryId": "697f4a66461d8277295c80e5",
-    "caseCode": "ADPF 745",
-    "caseClassDetail": "ADPF",
-    "caseNumberDetail": "745",
     "caseTitle": "ADPF 745",
     "caseUrl": "https://jurisprudencia.stf.jus.br/pages/search/sjur492627/false",
     "caseClass": "ADPF",
@@ -15,9 +12,7 @@
     "judgingBody": "Tribunal Pleno",
     "rapporteur": "Tribunal Pleno",
     "opinionWriter": "Tribunal Pleno",
-    "judgmentDate": "21/11/2023",
-    "publicationDate": "21/11/2023",
-    "domResultContainerId": "result-index-41"
+    "domClipboardId": "clipboard-1"
   },
   "audit": {
     "extractionDate": {
@@ -202,11 +197,6 @@
     "caseDoctrineModel": "mistral-large-latest",
     "caseDoctrineProvider": "mistral",
     "caseDoctrineStatus": "success"
-  },
-  "query": {
-    "queryString": "inconstitucional",
-    "pageSize": 100,
-    "inteiroTeor": true
   },
   "status": {
     "pipelineStatus": "doctrineExtracted",

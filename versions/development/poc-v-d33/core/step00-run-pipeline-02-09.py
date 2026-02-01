@@ -332,14 +332,15 @@ def main() -> int:
                     "identity.caseTitle": 1,
                     "identity.judgingBody": 1,
                     "identity.rapporteur": 1,
-                    "identity.judgmentDate": 1,
-                    "identity.publicationDate": 1,
+                    "dates.judgmentDate": 1,
+                    "dates.publicationDate": 1,
                     "caseTitle": 1,
                     "status.pipelineStatus": 1,
                 },
             )
             if doc:
                 identity = doc.get("identity") or {}
+                dates = doc.get("dates") or {}
                 log(
                     "Identificacao | "
                     f"stfDecisionId={identity.get('stfDecisionId')} | "
@@ -348,8 +349,8 @@ def main() -> int:
                     f"caseTitle={identity.get('caseTitle') or doc.get('caseTitle')} | "
                     f"judgingBody={identity.get('judgingBody')} | "
                     f"rapporteur={identity.get('rapporteur')} | "
-                    f"judgmentDate={identity.get('judgmentDate')} | "
-                    f"publicationDate={identity.get('publicationDate')} | "
+                    f"judgmentDate={dates.get('judgmentDate')} | "
+                    f"publicationDate={dates.get('publicationDate')} | "
                     f"pipelineStatus={(doc.get('status') or {}).get('pipelineStatus')}"
                 )
             else:
