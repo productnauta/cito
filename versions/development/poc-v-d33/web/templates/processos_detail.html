@@ -52,7 +52,13 @@
         <tbody>
           {% for ref in detail.doctrine_refs %}
             <tr>
-              <td>{{ ref.author or '-' }}</td>
+              <td>
+                {% if ref.author %}
+                  <a href="{{ url_for('doutrina_detail', kind='author', value=ref.author) }}">{{ ref.author }}</a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
               <td>{{ ref.publicationTitle or '-' }}</td>
               <td>{{ ref.edition or '-' }}</td>
               <td>{{ ref.year or '-' }}</td>
@@ -74,10 +80,20 @@
       </div>
       {% if detail.keywords %}
         <div class="chip-row">
-          {% for kw in detail.keywords %}
+          {% for kw in detail.keywords[:20] %}
             <span class="chip small">{{ kw }}</span>
           {% endfor %}
         </div>
+        {% if detail.keywords|length > 20 %}
+          <div class="actions">
+            <button class="secondary toggle-chips" data-target="keywords">Ver mais</button>
+          </div>
+          <div class="chip-row chip-row--hidden" data-chip-group="keywords">
+            {% for kw in detail.keywords[20:] %}
+              <span class="chip small">{{ kw }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem palavras-chave cadastradas.</p>
       {% endif %}
@@ -88,16 +104,22 @@
         <h2>Legislacao Citada</h2>
         <span class="chip">{{ detail.legislation_refs|length }} normas</span>
       </div>
-      {% if detail.legislation_refs %}
-        <div class="list-stack">
-          {% for norm in detail.legislation_refs %}
-            <div class="list-item">
-              <strong>{{ norm.normIdentifier }}</strong>
-              <span>{{ norm.normDescription or '—' }}</span>
-              <span class="muted">{{ norm.normType }} | {{ norm.jurisdictionLevel }}</span>
-            </div>
+      {% if detail.legislation_ids %}
+        <div class="chip-row">
+          {% for norm in detail.legislation_ids[:20] %}
+            <span class="chip small">{{ norm }}</span>
           {% endfor %}
         </div>
+        {% if detail.legislation_ids|length > 20 %}
+          <div class="actions">
+            <button class="secondary toggle-chips" data-target="legislation">Ver mais</button>
+          </div>
+          <div class="chip-row chip-row--hidden" data-chip-group="legislation">
+            {% for norm in detail.legislation_ids[20:] %}
+              <span class="chip small">{{ norm }}</span>
+            {% endfor %}
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem referencias legislativas.</p>
       {% endif %}
@@ -118,4 +140,16 @@
       <p class="empty">Nenhum link disponivel.</p>
     {% endif %}
   </section>
+
+  <script>
+    document.querySelectorAll('.toggle-chips').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-target');
+        const group = document.querySelector(`[data-chip-group=\"${target}\"]`);
+        if (!group) return;
+        const hidden = group.classList.toggle('chip-row--hidden');
+        btn.textContent = hidden ? 'Ver mais' : 'Ver menos';
+      });
+    });
+  </script>
 {% endblock %}

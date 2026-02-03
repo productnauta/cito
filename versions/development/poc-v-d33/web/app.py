@@ -893,7 +893,28 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     case_data = doc.get("caseData") or {}
 
     doctrine_refs = case_data.get("doctrineReferences") or []
-    legislation_refs = case_data.get("legislationReferences") or []
+    legislation_refs_raw = case_data.get("legislationReferences") or []
+    legislation_refs = []
+    legislation_ids = []
+    for norm in legislation_refs_raw:
+        if not isinstance(norm, dict):
+            norm_id = str(norm)
+            legislation_refs.append({"normIdentifier": norm_id})
+            legislation_ids.append(norm_id)
+            continue
+        norm_id = norm.get("normIdentifier")
+        norm_id_str = str(norm_id).strip() if norm_id is not None else ""
+        if not norm_id_str or norm_id_str.isdigit():
+            norm_type = str(norm.get("normType") or "NORMA").strip()
+            norm_year = norm.get("normYear")
+            if norm_year:
+                norm_id_str = f"{norm_type}-{norm_year}"
+            else:
+                norm_desc = str(norm.get("normDescription") or "").strip()
+                norm_id_str = norm_desc or norm_id_str or "—"
+        legislation_refs.append({"normIdentifier": norm_id_str})
+        legislation_ids.append(norm_id_str)
+    legislation_ids = [n for n in legislation_ids if n and n != "—"]
     keywords = case_data.get("caseKeywords") or []
 
     links = []
@@ -914,6 +935,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         "doctrine_refs": doctrine_refs,
         "keywords": keywords,
         "legislation_refs": legislation_refs,
+        "legislation_ids": legislation_ids,
         "links": links,
     }
 

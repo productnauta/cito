@@ -448,6 +448,10 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.chip-row--hidden {
+  display: none;
+}
+
 .chip.small {
   padding: 4px 8px;
   font-size: 11px;
