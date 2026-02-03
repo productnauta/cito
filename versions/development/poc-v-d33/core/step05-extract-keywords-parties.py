@@ -163,6 +163,7 @@ def process_document(col: Collection, stf_decision_id: str) -> int:
             "partiesCount": len(parties),
             "keywordsCount": len(keywords),
         },
+        "processing.partiesKeywordsStatus": "success",
         "processing.pipelineStatus": OUTPUT_PIPELINE_STATUS,
         "audit.updatedAt": utc_now(),
         "status.pipelineStatus": OUTPUT_PIPELINE_STATUS,
@@ -201,6 +202,7 @@ def main() -> int:
             {"identity.stfDecisionId": stf_decision_id},
             {"$set": {
                 "processing.pipelineStatus": ERROR_PIPELINE_STATUS,
+                "processing.partiesKeywordsStatus": "error",
                 "status.pipelineStatus": ERROR_PIPELINE_STATUS,
                 "status.error": str(e),
                 "status.updatedAt": utc_now(),

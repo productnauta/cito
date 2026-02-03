@@ -20,6 +20,7 @@ import os
 import re
 import sys
 import tempfile
+from uuid import uuid4
 import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -2179,13 +2180,21 @@ def scraping_execute(job_id: str) -> Any:
         return redirect(url_for("scraping"))
 
     now = datetime.now(timezone.utc)
+    run_id = str(uuid4())
+    log_path = str((BASE_DIR / "core" / "logs" / f"scrape-{run_id}.log"))
     jobs_col.update_one(
         {"_id": obj_id},
-        {"$set": {"status": "running", "updatedAt": now}},
+        {"$set": {
+            "status": "running",
+            "runId": run_id,
+            "startedAt": now,
+            "updatedAt": now,
+            "logPath": log_path,
+        }},
     )
     _web_log(
         "scraping.execute.start",
-        {"job_id": job_id, "remote_addr": request.remote_addr},
+        {"job_id": job_id, "run_id": run_id, "log_path": log_path, "remote_addr": request.remote_addr},
     )
 
     query_raw = _load_query_raw()
@@ -2199,12 +2208,18 @@ def scraping_execute(job_id: str) -> Any:
             temp_path = tmp.name
 
         script_path = str(BASE_DIR / "core" / "step00-search-stf.py")
-        result = subprocess.run(
-            [sys.executable, script_path, "--query-config", temp_path],
-            cwd=str(BASE_DIR / "core"),
-            capture_output=True,
-            text=True,
-        )
+        log_file = Path(log_path)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        with log_file.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.now().isoformat()}] START step00-search-stf.py runId={run_id}\n")
+            result = subprocess.run(
+                [sys.executable, script_path, "--query-config", temp_path],
+                cwd=str(BASE_DIR / "core"),
+                stdout=fh,
+                stderr=fh,
+                text=True,
+            )
+            fh.write(f"[{datetime.now().isoformat()}] END step00-search-stf.py rc={result.returncode}\n")
 
         latest_run = _get_case_query_collection().find_one(
             {"queryString": job_query.get("queryString")},
@@ -2212,12 +2227,16 @@ def scraping_execute(job_id: str) -> Any:
         )
         if latest_run:
             step01_path = str(BASE_DIR / "core" / "step01-extract-cases.py")
-            step01_result = subprocess.run(
-                [sys.executable, step01_path, "--case-query-id", str(latest_run.get("_id"))],
-                cwd=str(BASE_DIR / "core"),
-                capture_output=True,
-                text=True,
-            )
+            with log_file.open("a", encoding="utf-8") as fh:
+                fh.write(f"[{datetime.now().isoformat()}] START step01-extract-cases.py caseQueryId={latest_run.get('_id')}\n")
+                step01_result = subprocess.run(
+                    [sys.executable, step01_path, "--case-query-id", str(latest_run.get("_id"))],
+                    cwd=str(BASE_DIR / "core"),
+                    stdout=fh,
+                    stderr=fh,
+                    text=True,
+                )
+                fh.write(f"[{datetime.now().isoformat()}] END step01-extract-cases.py rc={step01_result.returncode}\n")
             _web_log(
                 "scraping.execute.step01",
                 {
@@ -2233,10 +2252,10 @@ def scraping_execute(job_id: str) -> Any:
                 "$set": {
                     "status": "completed" if result.returncode == 0 else "failed",
                     "updatedAt": datetime.now(timezone.utc),
-                    "lastRunId": str(latest_run.get("_id")) if latest_run else None,
+                    "finishedAt": datetime.now(timezone.utc),
+                    "caseQueryId": str(latest_run.get("_id")) if latest_run else None,
                     "resultCount": latest_run.get("extractedCount") if latest_run else None,
-                    "lastOutput": result.stdout[-4000:] if result.stdout else None,
-                    "lastError": result.stderr[-4000:] if result.stderr else None,
+                    "lastError": None,
                 }
             },
         )
@@ -2244,6 +2263,7 @@ def scraping_execute(job_id: str) -> Any:
             "scraping.execute.finish",
             {
                 "job_id": job_id,
+                "run_id": run_id,
                 "return_code": result.returncode,
                 "latest_run_id": str(latest_run.get("_id")) if latest_run else None,
                 "result_count": latest_run.get("extractedCount") if latest_run else None,
@@ -2257,6 +2277,7 @@ def scraping_execute(job_id: str) -> Any:
                 "$set": {
                     "status": "failed",
                     "updatedAt": datetime.now(timezone.utc),
+                    "finishedAt": datetime.now(timezone.utc),
                     "error": str(e),
                 }
             },
@@ -2362,9 +2383,24 @@ def scraping_pipeline_run(run_id: str) -> Any:
 
     core_dir = BASE_DIR / "core"
     pipeline_path = core_dir / "step00-run-pipeline-02-09.py"
+    run_uuid = str(uuid4())
+    log_path = str((core_dir / "logs" / f"pipeline-{run_uuid}.log"))
+
+    pipeline_jobs = _get_pipeline_jobs_collection()
+    job_doc = {
+        "caseQueryId": run_id,
+        "action": "run",
+        "status": "running",
+        "runId": run_uuid,
+        "logPath": log_path,
+        "startedAt": datetime.now(timezone.utc),
+        "updatedAt": datetime.now(timezone.utc),
+        "source": "ui",
+    }
+    job_id = pipeline_jobs.insert_one(job_doc).inserted_id
 
     pipeline_result = subprocess.run(
-        [sys.executable, str(pipeline_path), "--case-query-id", run_id],
+        [sys.executable, str(pipeline_path), "--case-query-id", run_id, "--run-id", run_uuid],
         cwd=str(core_dir),
         capture_output=True,
         text=True,
@@ -2373,24 +2409,25 @@ def scraping_pipeline_run(run_id: str) -> Any:
         "pipeline.run.pipeline",
         {
             "case_query_id": run_id,
+            "run_id": run_uuid,
             "return_code": pipeline_result.returncode,
             "remote_addr": request.remote_addr,
         },
     )
-    latest_log = None
-    try:
-        log_dir = core_dir / "logs"
-        if log_dir.exists():
-            logs = list(log_dir.glob("pipeline-*.log"))
-            if logs:
-                latest_log = str(max(logs, key=lambda p: p.stat().st_mtime))
-    except Exception:
-        latest_log = None
+    pipeline_jobs.update_one(
+        {"_id": job_id},
+        {"$set": {
+            "status": "completed" if pipeline_result.returncode == 0 else "failed",
+            "finishedAt": datetime.now(timezone.utc),
+            "updatedAt": datetime.now(timezone.utc),
+        }},
+    )
     _web_log(
         "pipeline.run.log_file",
         {
             "case_query_id": run_id,
-            "log_file": latest_log,
+            "run_id": run_uuid,
+            "log_file": log_path,
             "remote_addr": request.remote_addr,
         },
     )

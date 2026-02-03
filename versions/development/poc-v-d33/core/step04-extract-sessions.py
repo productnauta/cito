@@ -292,6 +292,7 @@ def persist_success(col: Collection, doc_id: Any, *, update_fields: Dict[str, An
         "processing.caseSectionsExtractedAt": utc_now(),
         "processing.caseSectionsError": None,
         "processing.caseSectionsMeta": meta,
+        "processing.caseSectionsStatus": "success",
         "processing.pipelineStatus": "caseSectionsExtracted",
         "audit.updatedAt": utc_now(),
         "audit.lastSectionsExtractedAt": utc_now(),
@@ -307,6 +308,7 @@ def persist_error(col: Collection, doc_id: Any, *, err: str) -> None:
         {"$set": {
             "processing.caseSectionsExtractedAt": utc_now(),
             "processing.caseSectionsError": err,
+            "processing.caseSectionsStatus": "error",
             "processing.pipelineStatus": "caseSectionsExtractError",
             "audit.updatedAt": utc_now(),
         }},

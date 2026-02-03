@@ -42,6 +42,7 @@ DELAY_BETWEEN_STEPS_SECONDS = 2.0
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE_PATH = LOG_DIR / "pipeline-02-09.log"
 LOG_TO_FILE = True
+RUN_ID: Optional[str] = None
 
 
 # =============================================================================
@@ -65,7 +66,8 @@ def _write_log_file(text: str) -> None:
 
 
 def log(msg: str) -> None:
-    line = f"[{_ts()}] - {msg}"
+    prefix = f"[runId={RUN_ID}] " if RUN_ID else ""
+    line = f"[{_ts()}] - {prefix}{msg}"
     print(line)
     _write_log_file(line + "\n")
 
@@ -183,6 +185,28 @@ def _run_step(script: str, input_text: str) -> int:
     return result.returncode
 
 
+def _is_step_success(script: str, doc: Dict[str, Any]) -> bool:
+    processing = doc.get("processing") if isinstance(doc.get("processing"), dict) else {}
+    if script == "step02-get-case-html.py":
+        return processing.get("caseScrapeStatus") == "success"
+    if script == "step03-clean-case-html.py":
+        return (processing.get("caseHtmlCleanStatus") == "success") or bool(processing.get("caseHtmlCleanedAt"))
+    if script == "step04-extract-sessions.py":
+        return (processing.get("caseSectionsStatus") == "success") or bool(processing.get("caseSectionsExtractedAt"))
+    if script == "step05-extract-keywords-parties.py":
+        parties = processing.get("partiesKeywords") if isinstance(processing.get("partiesKeywords"), dict) else {}
+        return (processing.get("partiesKeywordsStatus") == "success") or bool(parties.get("finishedAt"))
+    if script == "step06-extract-legislation-mistral.py":
+        return processing.get("caseLegislationRefsStatus") == "success"
+    if script == "step07-extract-notes-mistral.py":
+        return processing.get("caseNotesRefsStatus") == "success"
+    if script == "step08-doctrine-mistral.py":
+        return processing.get("caseDoctrineStatus") == "success"
+    if script == "step09-extract-decision-details-mistral.py":
+        return processing.get("caseDecisionDetailsStatus") == "success"
+    return False
+
+
 # =============================================================================
 # 3) PROMPT
 # =============================================================================
@@ -235,6 +259,10 @@ def main() -> int:
         "--case-query-id",
         help="Filtra apenas processos relacionados a um case_query._id.",
     )
+    parser.add_argument(
+        "--run-id",
+        help="Identificador da execucao para logging e correlacao.",
+    )
     args = parser.parse_args()
 
     # Carregar pipeline.yaml
@@ -251,12 +279,17 @@ def main() -> int:
     logging_cfg = pipeline_cfg.get("logging") if isinstance(pipeline_cfg.get("logging"), dict) else {}
 
     # Ajusta logging conforme config
-    global LOG_DIR, LOG_FILE_PATH, LOG_TO_FILE
+    global LOG_DIR, LOG_FILE_PATH, LOG_TO_FILE, RUN_ID
     LOG_TO_FILE = logging_cfg.get("enabled") is not False
     if isinstance(logging_cfg.get("log_dir"), str) and logging_cfg.get("log_dir"):
-        LOG_DIR = Path(str(logging_cfg.get("log_dir"))).expanduser()
+        log_dir_cfg = Path(str(logging_cfg.get("log_dir"))).expanduser()
+        LOG_DIR = log_dir_cfg if log_dir_cfg.is_absolute() else (BASE_DIR.parent / log_dir_cfg)
     if isinstance(logging_cfg.get("log_file"), str) and logging_cfg.get("log_file"):
         LOG_FILE_PATH = LOG_DIR / str(logging_cfg.get("log_file"))
+
+    RUN_ID = (args.run_id or "").strip() or None
+    if RUN_ID:
+        LOG_FILE_PATH = LOG_DIR / f"pipeline-{RUN_ID}.log"
 
     # case_url override
     case_url = (args.case_url or "").strip() or str(runtime_cfg.get("case_url_override") or "").strip()
@@ -350,6 +383,7 @@ def main() -> int:
                     "dates.publicationDate": 1,
                     "caseTitle": 1,
                     "status.pipelineStatus": 1,
+                    "processing": 1,
                 },
             )
             if doc:
@@ -379,6 +413,16 @@ def main() -> int:
 
         case_failed = False
         for script, input_text in steps:
+            try:
+                state_doc = col.find_one(
+                    {"identity.stfDecisionId": stf_id},
+                    projection={"processing": 1},
+                )
+            except Exception:
+                state_doc = None
+            if state_doc and _is_step_success(script, state_doc):
+                log(f"SKIP: {script} (ja concluido)")
+                continue
             log(f"Executando: {script}")
             rc = _run_step(script, input_text)
             if rc != 0:

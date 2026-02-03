@@ -114,6 +114,7 @@ def persist_success(col: Collection, doc_id: Any, *, clean_html: str, meta: Dict
             "processing.caseHtmlCleanedAt": utc_now(),
             "processing.caseHtmlCleanMeta": meta,
             "processing.caseHtmlCleanError": None,
+            "processing.caseHtmlCleanStatus": "success",
             "processing.pipelineStatus": "caseHtmlCleaned",
             "audit.updatedAt": utc_now(),
             "audit.lastCaseHtmlCleanedAt": utc_now(),
@@ -128,6 +129,7 @@ def persist_error(col: Collection, doc_id: Any, *, err: str) -> None:
         {"$set": {
             "processing.caseHtmlCleanedAt": utc_now(),
             "processing.caseHtmlCleanError": err,
+            "processing.caseHtmlCleanStatus": "error",
             "processing.pipelineStatus": "caseHtmlCleanError",
             "audit.updatedAt": utc_now(),
         }},

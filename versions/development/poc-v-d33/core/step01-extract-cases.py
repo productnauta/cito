@@ -22,6 +22,7 @@ import json
 import re
 import sys
 import traceback
+from uuid import uuid4
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -210,37 +211,74 @@ def get_collections(cfg: MongoCfg) -> Tuple[Collection, Collection]:
     return db[cfg.case_query_collection], db[cfg.case_data_collection]
 
 
-def claim_next_case_query(case_query_col: Collection, cfg: MongoCfg) -> Optional[Dict[str, Any]]:
+def claim_next_case_query(
+    case_query_col: Collection,
+    cfg: MongoCfg,
+    *,
+    run_id: str,
+    mode: str,
+) -> Optional[Dict[str, Any]]:
     """
     Claim atômico do próximo documento em case_query com status='new'.
     """
     log("INFO", f"Claim atômico | status='{cfg.status_input}' -> '{cfg.status_processing}'")
     return case_query_col.find_one_and_update(
         {"status": cfg.status_input},
-        {"$set": {"status": cfg.status_processing, "extractingAt": utc_now()}},
+        {"$set": {
+            "status": cfg.status_processing,
+            "extractingAt": utc_now(),
+            "steps.step01.status": "running",
+            "steps.step01.startedAt": utc_now(),
+            "steps.step01.runId": run_id,
+            "steps.step01.mode": mode,
+        }},
         sort=[("_id", 1)],
         return_document=ReturnDocument.AFTER,
     )
 
 
-def mark_case_query_ok(case_query_col: Collection, doc_id, cfg: MongoCfg, *, extracted_count: int) -> None:
+def mark_case_query_ok(
+    case_query_col: Collection,
+    doc_id,
+    cfg: MongoCfg,
+    *,
+    extracted_count: int,
+    run_id: str,
+    mode: str,
+) -> None:
     case_query_col.update_one(
         {"_id": doc_id, "status": cfg.status_processing},
         {"$set": {
             "status": cfg.status_ok,
             "processedDate": utc_now(),
             "extractedCount": int(extracted_count),
+            "steps.step01.status": "success",
+            "steps.step01.executedAt": utc_now(),
+            "steps.step01.runId": run_id,
+            "steps.step01.mode": mode,
         }},
     )
 
 
-def mark_case_query_error(case_query_col: Collection, doc_id, cfg: MongoCfg, *, error_msg: str) -> None:
+def mark_case_query_error(
+    case_query_col: Collection,
+    doc_id,
+    cfg: MongoCfg,
+    *,
+    error_msg: str,
+    run_id: str,
+    mode: str,
+) -> None:
     case_query_col.update_one(
         {"_id": doc_id, "status": cfg.status_processing},
         {"$set": {
             "status": cfg.status_error,
             "processedDate": utc_now(),
             "error": _clean_ws(error_msg),
+            "steps.step01.status": "error",
+            "steps.step01.executedAt": utc_now(),
+            "steps.step01.runId": run_id,
+            "steps.step01.mode": mode,
         }},
     )
 
@@ -291,9 +329,25 @@ def _extract_case_url(container) -> Optional[str]:
 
 
 def _extract_labeled_value(container, label_contains: str) -> Optional[str]:
+    label_patterns = {
+        "Órgão julgador": r"Órgão julgador",
+        "Relator": r"Relator(?:\\(a\\))?",
+        "Redator": r"Redator(?:\\(a\\))?",
+    }
+    stop_labels = r"(?:Órgão julgador|Relator(?:\\(a\\))?|Redator(?:\\(a\\))?|Julgamento|Publicação)"
+    label_pattern = label_patterns.get(label_contains, re.escape(label_contains))
     for el in container.find_all(["h4", "span", "div"]):
         txt = el.get_text(" ", strip=True)
         if label_contains in txt:
+            m = re.search(
+                rf"{label_pattern}\\s*:\\s*(.+?)(?=\\s+{stop_labels}\\s*:|$)",
+                txt,
+                flags=re.IGNORECASE,
+            )
+            if m:
+                value = _clean_str(m.group(1))
+                if value:
+                    return value
             nxt = el.find_next("span")
             if nxt:
                 return _clean_str(nxt.get_text(" ", strip=True))
@@ -542,6 +596,9 @@ def _process_case_query_doc(
     case_col: Collection,
     mongo_cfg: MongoCfg,
     case_query_doc: Dict[str, Any],
+    *,
+    run_id: str,
+    mode: str,
 ) -> int:
     doc_id = case_query_doc["_id"]
     doc_id_str = str(doc_id)
@@ -599,14 +656,28 @@ def _process_case_query_doc(
         log("INFO", f"Persistência concluída | inseridos={inserted} | atualizados={updated} | ignorados={skipped}")
 
         step(8, 8, "Atualizando status do case_query para 'extracted'")
-        mark_case_query_ok(case_query_col, doc_id, mongo_cfg, extracted_count=len(extracted_docs))
+        mark_case_query_ok(
+            case_query_col,
+            doc_id,
+            mongo_cfg,
+            extracted_count=len(extracted_docs),
+            run_id=run_id,
+            mode=mode,
+        )
 
         log("INFO", f"case_query._id={doc_id_str} | extractedCount={len(extracted_docs)} | status='{mongo_cfg.status_ok}'")
         return 0
 
     except Exception as e:
         step(8, 8, "Falha detectada: marcando case_query como 'error'")
-        mark_case_query_error(case_query_col, doc_id, mongo_cfg, error_msg=str(e))
+        mark_case_query_error(
+            case_query_col,
+            doc_id,
+            mongo_cfg,
+            error_msg=str(e),
+            run_id=run_id,
+            mode=mode,
+        )
 
         log("ERROR", f"Erro ao processar case_query._id={doc_id_str}: {e}")
         log("ERROR", "Stacktrace completo:")
@@ -616,9 +687,12 @@ def _process_case_query_doc(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Extrai cards de case_query para case_data.")
     parser.add_argument("--case-query-id", dest="case_query_id", help="Processa apenas este _id do case_query.")
+    parser.add_argument("--mode", dest="mode", help="Modo de execucao do Step01 (new|all).", default="all")
     args = parser.parse_args()
 
     total_steps = 8
+    run_id = str(uuid4())
+    mode = (args.mode or "all").strip().lower()
 
     step(1, total_steps, "Carregando configurações (mongo.yaml / query.json)")
     mongo_raw = load_yaml(MONGO_CONFIG_PATH)
@@ -648,20 +722,41 @@ def main() -> int:
 
         case_query_col.update_one(
             {"_id": obj_id},
-            {"$set": {"status": mongo_cfg.status_processing, "extractingAt": utc_now()}},
+            {"$set": {
+                "status": mongo_cfg.status_processing,
+                "extractingAt": utc_now(),
+                "steps.step01.status": "running",
+                "steps.step01.startedAt": utc_now(),
+                "steps.step01.runId": run_id,
+                "steps.step01.mode": mode,
+            }},
         )
         case_query_doc = case_query_col.find_one({"_id": obj_id}) or case_query_doc
-        return _process_case_query_doc(case_query_col, case_col, mongo_cfg, case_query_doc)
+        return _process_case_query_doc(
+            case_query_col,
+            case_col,
+            mongo_cfg,
+            case_query_doc,
+            run_id=run_id,
+            mode=mode,
+        )
 
     processed_total = 0
     while True:
         step(3, total_steps, f"Claim do próximo case_query (status='{mongo_cfg.status_input}')")
-        case_query_doc = claim_next_case_query(case_query_col, mongo_cfg)
+        case_query_doc = claim_next_case_query(case_query_col, mongo_cfg, run_id=run_id, mode=mode)
         if not case_query_doc:
             log("INFO", f"Nenhum documento com status='{mongo_cfg.status_input}' em '{mongo_cfg.case_query_collection}'.")
             break
 
-        rc = _process_case_query_doc(case_query_col, case_col, mongo_cfg, case_query_doc)
+        rc = _process_case_query_doc(
+            case_query_col,
+            case_col,
+            mongo_cfg,
+            case_query_doc,
+            run_id=run_id,
+            mode=mode,
+        )
         if rc == 0:
             processed_total += 1
         else:
