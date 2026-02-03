@@ -104,12 +104,12 @@ def main() -> int:
 
         steps = [
             ("step02-get-case-html.py", f"{stf_decision_id}\n{case_url}\n" if case_url else f"{stf_decision_id}\n"),
-            ("step03-clean-case-html.py", f"2\n{stf_decision_id}\n"),
-            ("step04-extract-sessions.py", f"2\n{stf_decision_id}\n"),
+            ("step03-clean-case-html.py", f"{stf_decision_id}\n"),
+            ("step04-extract-sessions.py", f"{stf_decision_id}\n"),
             ("step05-extract-keywords-parties.py", f"{stf_decision_id}\n"),
-            ("step06-extract-legislation-groq.py", f"{stf_decision_id}\n"),
-            ("step07-extract-notes-groq.py", f"{stf_decision_id}\n"),
-            ("step08-doctrine-legislation-ai.py", f"{stf_decision_id}\n"),
+            ("step06-extract-legislation-mistral.py", f"{stf_decision_id}\n"),
+            ("step07-extract-notes-mistral.py", f"{stf_decision_id}\n"),
+            ("step08-doctrine-mistral.py", f"{stf_decision_id}\n"),
         ]
 
         for script, input_text in steps:
