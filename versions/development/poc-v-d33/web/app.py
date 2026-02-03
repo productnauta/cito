@@ -15,6 +15,7 @@ Dependencies: flask, pymongo, pyyaml
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -55,6 +56,9 @@ SCRAPE_JOBS_COLLECTION = "scrape_jobs"
 QUERY_CONFIG_PATH = CONFIG_DIR / "query.yaml"
 PIPELINE_CONFIG_PATH = CONFIG_DIR / "pipeline.yaml"
 PIPELINE_JOBS_COLLECTION = "pipeline_jobs"
+
+WEB_LOG_DIR = BASE_DIR / "core" / "logs"
+WEB_LOG_FILE = WEB_LOG_DIR / "web-actions.log"
 
 _collection: Optional[Collection] = None
 _db = None
@@ -266,6 +270,22 @@ def _status_meta() -> Dict[str, Dict[str, str]]:
         "error": {"label": "Falhou", "class": "status-pill status-pill--danger"},
         "unknown": {"label": "Desconhecido", "class": "status-pill status-pill--muted"},
     }
+
+
+def _web_log(action: str, payload: Dict[str, Any]) -> None:
+    try:
+        WEB_LOG_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        entry = {
+            "ts": stamp,
+            "action": action,
+            "payload": payload,
+        }
+        with WEB_LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        # Evita quebrar o app em caso de falha de escrita
+        pass
 
 
 def _get_filters(args: Dict[str, Any]) -> Dict[str, str]:
@@ -2091,7 +2111,17 @@ def scraping_schedule() -> Any:
         "executionMode": execution_mode,
         "source": "ui",
     }
-    _get_scrape_jobs_collection().insert_one(doc)
+    result = _get_scrape_jobs_collection().insert_one(doc)
+    _web_log(
+        "scraping.schedule",
+        {
+            "job_id": str(result.inserted_id),
+            "execution_mode": execution_mode,
+            "scheduled_for": scheduled_for.isoformat(),
+            "query": query,
+            "remote_addr": request.remote_addr,
+        },
+    )
     return redirect(url_for("scraping"))
 
 
@@ -2103,9 +2133,18 @@ def scraping_cancel(job_id: str) -> Any:
         return redirect(url_for("scraping"))
 
     now = datetime.now(timezone.utc)
-    _get_scrape_jobs_collection().update_one(
+    result = _get_scrape_jobs_collection().update_one(
         {"_id": obj_id, "status": "scheduled"},
         {"$set": {"status": "canceled", "updatedAt": now}},
+    )
+    _web_log(
+        "scraping.cancel",
+        {
+            "job_id": job_id,
+            "matched": result.matched_count,
+            "modified": result.modified_count,
+            "remote_addr": request.remote_addr,
+        },
     )
     return redirect(url_for("scraping"))
 
@@ -2126,6 +2165,10 @@ def scraping_execute(job_id: str) -> Any:
     jobs_col.update_one(
         {"_id": obj_id},
         {"$set": {"status": "running", "updatedAt": now}},
+    )
+    _web_log(
+        "scraping.execute.start",
+        {"job_id": job_id, "remote_addr": request.remote_addr},
     )
 
     query_raw = _load_query_raw()
@@ -2163,6 +2206,16 @@ def scraping_execute(job_id: str) -> Any:
                 }
             },
         )
+        _web_log(
+            "scraping.execute.finish",
+            {
+                "job_id": job_id,
+                "return_code": result.returncode,
+                "latest_run_id": str(latest_run.get("_id")) if latest_run else None,
+                "result_count": latest_run.get("extractedCount") if latest_run else None,
+                "remote_addr": request.remote_addr,
+            },
+        )
     except Exception as e:
         jobs_col.update_one(
             {"_id": obj_id},
@@ -2173,6 +2226,10 @@ def scraping_execute(job_id: str) -> Any:
                     "error": str(e),
                 }
             },
+        )
+        _web_log(
+            "scraping.execute.error",
+            {"job_id": job_id, "error": str(e), "remote_addr": request.remote_addr},
         )
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -2276,15 +2333,31 @@ def scraping_pipeline_run(run_id: str) -> Any:
         capture_output=True,
         text=True,
     )
+    _web_log(
+        "pipeline.run.step01",
+        {
+            "case_query_id": run_id,
+            "return_code": step01_result.returncode,
+            "remote_addr": request.remote_addr,
+        },
+    )
 
     if step01_result.returncode != 0:
         return redirect(url_for("scraping_detail", run_id=run_id))
 
-    subprocess.run(
+    pipeline_result = subprocess.run(
         [sys.executable, str(pipeline_path)],
         cwd=str(core_dir),
         capture_output=True,
         text=True,
+    )
+    _web_log(
+        "pipeline.run.pipeline",
+        {
+            "case_query_id": run_id,
+            "return_code": pipeline_result.returncode,
+            "remote_addr": request.remote_addr,
+        },
     )
     return redirect(url_for("scraping_detail", run_id=run_id))
 
@@ -2292,15 +2365,28 @@ def scraping_pipeline_run(run_id: str) -> Any:
 @app.route("/scraping/<run_id>/pipeline/reprocess", methods=["POST"])
 def scraping_pipeline_reprocess(run_id: str) -> Any:
     _enqueue_pipeline_job(run_id, "reprocess")
+    _web_log(
+        "pipeline.reprocess.enqueue",
+        {"case_query_id": run_id, "remote_addr": request.remote_addr},
+    )
     return redirect(url_for("scraping_detail", run_id=run_id))
 
 
 @app.route("/scraping/<run_id>/pipeline/cancel", methods=["POST"])
 def scraping_pipeline_cancel(run_id: str) -> Any:
     now = datetime.now(timezone.utc)
-    _get_pipeline_jobs_collection().update_many(
+    result = _get_pipeline_jobs_collection().update_many(
         {"caseQueryId": run_id, "status": {"$in": ["scheduled", "running"]}},
         {"$set": {"status": "canceled", "updatedAt": now}},
+    )
+    _web_log(
+        "pipeline.cancel",
+        {
+            "case_query_id": run_id,
+            "matched": result.matched_count,
+            "modified": result.modified_count,
+            "remote_addr": request.remote_addr,
+        },
     )
     return redirect(url_for("scraping_detail", run_id=run_id))
 
