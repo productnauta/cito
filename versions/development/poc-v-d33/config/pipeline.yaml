@@ -11,6 +11,9 @@ pipeline:
       processing_pipeline_status: extracted
   execution:
     steps:
+      - script: step01-extract-cases.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
       - script: step02-get-case-html.py
         enabled: true
         input_format: "{stfDecisionId}\n{caseUrl}\n"

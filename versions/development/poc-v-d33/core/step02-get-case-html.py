@@ -75,6 +75,7 @@ def find_case_by_decision_id(col: Collection, stf_decision_id: str) -> Optional[
         projection={
             "_id": 1,
             "identity.stfDecisionId": 1,
+            "identity.caseUrl": 1,
             "caseTitle": 1,
             "caseContent.caseUrl": 1,
         },
@@ -344,6 +345,8 @@ def main() -> int:
     case_url = None
     if doc:
         case_url = ((doc.get("caseContent") or {}).get("caseUrl") or "").strip()
+        if not case_url:
+            case_url = ((doc.get("identity") or {}).get("caseUrl") or "").strip()
         log("OK", f"Documento encontrado | _id={doc.get('_id')} | title='{doc.get('caseTitle') or ''}'")
     else:
         log("WARN", "Documento não encontrado. Será criado via upsert (se houver URL).")

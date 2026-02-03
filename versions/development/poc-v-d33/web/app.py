@@ -394,6 +394,196 @@ def _citations_count_expr(allowed_types: List[str]) -> Dict[str, Any]:
     }
 
 
+def _aggregate_cases_by_year(collection: Collection, match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$match": {"dates.judgmentDate": {"$type": "date"}}})
+    pipeline.append({"$group": {"_id": {"$year": "$dates.judgmentDate"}, "total": {"$sum": 1}}})
+    pipeline.append({"$project": {"_id": 0, "year": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"year": 1}})
+    return list(collection.aggregate(pipeline))
+
+
+def _calculate_cases_per_year_avg(year_counts: List[Dict[str, Any]]) -> Optional[float]:
+    if not year_counts:
+        return None
+    total = sum(int(item.get("total") or 0) for item in year_counts)
+    return total / max(len(year_counts), 1)
+
+
+def _calculate_case_trend(year_counts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if len(year_counts) < 2:
+        return None
+    prev = int(year_counts[-2].get("total") or 0)
+    last = int(year_counts[-1].get("total") or 0)
+    if prev == 0:
+        return None
+    change = ((last - prev) / prev) * 100
+    return {"year": year_counts[-1].get("year"), "change": change}
+
+
+def _aggregate_decision_distribution(
+    collection: Collection, match: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_finalDecision": {
+                    "$ifNull": [f"${DECISION_RESULT_PATH}", "Não informado"]
+                }
+            }
+        }
+    )
+    pipeline.append({"$group": {"_id": "$_finalDecision", "total": {"$sum": 1}}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    return list(collection.aggregate(pipeline))
+
+
+def _aggregate_vote_vencido_rate(collection: Collection, match: Dict[str, Any]) -> Optional[float]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${MINISTER_VOTES_PATH}"})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_voteType": {"$ifNull": [f"${MINISTER_VOTES_PATH}.voteType", ""]}
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$group": {
+                "_id": None,
+                "total_defined": {
+                    "$sum": {"$cond": [{"$ne": ["$_voteType", ""]}, 1, 0]}
+                },
+                "total_vencido": {
+                    "$sum": {"$cond": [{"$eq": ["$_voteType", "vencido"]}, 1, 0]}
+                },
+            }
+        }
+    )
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return None
+    total_defined = int(result[0].get("total_defined") or 0)
+    total_vencido = int(result[0].get("total_vencido") or 0)
+    if total_defined == 0:
+        return None
+    return (total_vencido / total_defined) * 100
+
+
+def _aggregate_avg_citations(
+    collection: Collection, match: Dict[str, Any], allowed_types: List[str]
+) -> Optional[float]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_citationsCount": _citations_count_expr(allowed_types),
+                "_hasCitations": {"$cond": [{"$isArray": f"${CITATIONS_PATH}"}, 1, 0]},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$group": {
+                "_id": None,
+                "avg": {"$avg": "$_citationsCount"},
+                "cases_with_citations": {"$sum": "$_hasCitations"},
+            }
+        }
+    )
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return None
+    cases_with_citations = int(result[0].get("cases_with_citations") or 0)
+    if cases_with_citations == 0:
+        return None
+    return float(result[0].get("avg") or 0.0)
+
+
+def _aggregate_citation_ratio(
+    collection: Collection, match: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${CITATIONS_PATH}"})
+    pipeline.append({"$group": {"_id": f"${CITATIONS_PATH}.citationType", "total": {"$sum": 1}}})
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return None
+    counts = {row["_id"]: int(row.get("total") or 0) for row in result if row.get("_id")}
+    doutrina = counts.get("doutrina", 0)
+    legislacao = counts.get("legislacao", 0)
+    total = doutrina + legislacao
+    if total == 0:
+        return None
+    return {
+        "doutrina": doutrina,
+        "legislacao": legislacao,
+        "percent_doutrina": (doutrina / total) * 100,
+        "percent_legislacao": (legislacao / total) * 100,
+    }
+
+
+def _aggregate_top_doctrine_titles(
+    collection: Collection, match: Dict[str, Any], limit: int = 3
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
+    pipeline.append({"$match": {f"{DOCTRINE_PATH}.publicationTitle": {"$nin": [None, ""]}}})
+    pipeline.append({"$group": {"_id": f"${DOCTRINE_PATH}.publicationTitle", "total": {"$sum": 1}}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    return list(collection.aggregate(pipeline))
+
+
+def _aggregate_top_cases_by_doctrine(
+    collection: Collection, match: Dict[str, Any], limit: int = 3
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}},
+                "_caseTitle": {"$ifNull": ["$identity.caseTitle", "$caseTitle"]},
+                "_stfId": {"$ifNull": ["$identity.stfDecisionId", "$_id"]},
+            }
+        }
+    )
+    pipeline.append({"$match": {"_doctrineCount": {"$gt": 0}}})
+    pipeline.append(
+        {
+            "$project": {
+                "_id": 0,
+                "case_title": "$_caseTitle",
+                "stf_id": "$_stfId",
+                "total": "$_doctrineCount",
+            }
+        }
+    )
+    pipeline.append({"$sort": {"total": -1, "case_title": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    return list(collection.aggregate(pipeline))
+
+
 def _aggregate_minister_options(collection: Collection, case_match: Dict[str, Any]) -> List[str]:
     rapporteur_pipeline: List[Dict[str, Any]] = []
     if case_match:
@@ -795,10 +985,49 @@ def doutrina() -> Any:
     filters = _get_filters(request.args)
     collection = _get_collection()
 
+    base_match = _build_match(filters)
+    citation_types_all = [
+        "doutrina",
+        "legislacao",
+        "precedente_vinculante",
+        "precedente_persuasivo",
+        "jurisprudencia",
+        "outro",
+    ]
+
     summary_total = _count_cases(collection, filters)
     authors = _aggregate_authors(collection, filters)
     titles = _aggregate_titles(collection, filters)
     rapporteurs = _aggregate_rapporteurs(collection, filters)
+    top_doctrine_titles = _aggregate_top_doctrine_titles(collection, base_match, limit=3)
+    top_cases_by_doctrine = _aggregate_top_cases_by_doctrine(collection, base_match, limit=3)
+    avg_citations = _aggregate_avg_citations(collection, base_match, citation_types_all)
+    vote_vencido_rate = _aggregate_vote_vencido_rate(collection, base_match)
+    decision_distribution = _aggregate_decision_distribution(collection, base_match)
+    citation_ratio = _aggregate_citation_ratio(collection, base_match)
+    cases_by_year = _aggregate_cases_by_year(collection, base_match)
+    cases_per_year_avg = _calculate_cases_per_year_avg(cases_by_year)
+    case_trend = _calculate_case_trend(cases_by_year)
+
+    total_decisions = sum(item.get("total", 0) for item in decision_distribution)
+    decision_distribution_pct = []
+    if total_decisions:
+        for item in decision_distribution:
+            decision_distribution_pct.append(
+                {
+                    "label": item.get("label", "Nao informado"),
+                    "total": item.get("total", 0),
+                    "percent": (item.get("total", 0) / total_decisions) * 100,
+                }
+            )
+
+    case_trend_label = "—"
+    if case_trend:
+        change = case_trend.get("change")
+        year_label = case_trend.get("year")
+        if change is not None and year_label is not None:
+            sign = "+" if change >= 0 else ""
+            case_trend_label = f"{sign}{change:.1f}% em {year_label}"
 
     filter_params = {k: v for k, v in filters.items() if v}
 
@@ -811,6 +1040,20 @@ def doutrina() -> Any:
         authors=authors,
         titles=titles,
         rapporteurs=rapporteurs,
+        top_doctrine_titles=top_doctrine_titles,
+        top_cases_by_doctrine=top_cases_by_doctrine,
+        avg_citations=avg_citations,
+        vote_vencido_rate=vote_vencido_rate,
+        decision_distribution_pct=decision_distribution_pct,
+        citation_ratio=citation_ratio,
+        cases_per_year_avg=cases_per_year_avg,
+        case_trend_label=case_trend_label,
+        chart_minister_labels=[row["label"] for row in rapporteurs[:10]],
+        chart_minister_values=[row["total"] for row in rapporteurs[:10]],
+        chart_decision_labels=[row["label"] for row in decision_distribution_pct],
+        chart_decision_values=[row["percent"] for row in decision_distribution_pct],
+        chart_year_labels=[row["year"] for row in cases_by_year],
+        chart_year_values=[row["total"] for row in cases_by_year],
     )
 
 
@@ -866,6 +1109,14 @@ def ministros() -> Any:
     filters = _get_ministro_filters(request.args)
     collection = _get_collection()
     case_match = _build_ministro_case_match(filters)
+    citation_types_all = [
+        "doutrina",
+        "legislacao",
+        "precedente_vinculante",
+        "precedente_persuasivo",
+        "jurisprudencia",
+        "outro",
+    ]
 
     ministers_list = _aggregate_ministers(collection, filters)
     total_ministers = len(ministers_list)
@@ -875,6 +1126,41 @@ def ministros() -> Any:
 
     minister_options = _aggregate_minister_options(collection, case_match)
     class_options = _aggregate_case_classes(collection, case_match)
+
+    total_cases = _count_distinct_cases(collection, case_match or {})
+    avg_citations = _aggregate_avg_citations(collection, case_match, citation_types_all)
+    vote_vencido_rate = _aggregate_vote_vencido_rate(collection, case_match)
+    decision_distribution = _aggregate_decision_distribution(collection, case_match)
+    citation_ratio = _aggregate_citation_ratio(collection, case_match)
+    cases_by_year = _aggregate_cases_by_year(collection, case_match)
+    cases_per_year_avg = _calculate_cases_per_year_avg(cases_by_year)
+    case_trend = _calculate_case_trend(cases_by_year)
+
+    total_decisions = sum(item.get("total", 0) for item in decision_distribution)
+    decision_distribution_pct = []
+    if total_decisions:
+        for item in decision_distribution:
+            decision_distribution_pct.append(
+                {
+                    "label": item.get("label", "Nao informado"),
+                    "total": item.get("total", 0),
+                    "percent": (item.get("total", 0) / total_decisions) * 100,
+                }
+            )
+
+    top_relatoria = sorted(
+        ministers_list,
+        key=lambda item: (-item.get("total_relatorias", 0), item["minister"].casefold()),
+    )
+    top_relatoria_minister = top_relatoria[0] if top_relatoria else None
+
+    case_trend_label = "—"
+    if case_trend:
+        change = case_trend.get("change")
+        year_label = case_trend.get("year")
+        if change is not None and year_label is not None:
+            sign = "+" if change >= 0 else ""
+            case_trend_label = f"{sign}{change:.1f}% em {year_label}"
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
@@ -892,6 +1178,20 @@ def ministros() -> Any:
         limit=limit,
         next_limit=next_limit,
         show_more=total_ministers > limit,
+        total_cases=total_cases,
+        avg_citations=avg_citations,
+        vote_vencido_rate=vote_vencido_rate,
+        decision_distribution_pct=decision_distribution_pct,
+        citation_ratio=citation_ratio,
+        cases_per_year_avg=cases_per_year_avg,
+        case_trend_label=case_trend_label,
+        top_relatoria_minister=top_relatoria_minister,
+        chart_minister_labels=[row["minister"] for row in ministers_list[:10]],
+        chart_minister_values=[row["total_processes"] for row in ministers_list[:10]],
+        chart_decision_labels=[row["label"] for row in decision_distribution_pct],
+        chart_decision_values=[row["percent"] for row in decision_distribution_pct],
+        chart_year_labels=[row["year"] for row in cases_by_year],
+        chart_year_values=[row["total"] for row in cases_by_year],
     )
 
 

@@ -1,7 +1,7 @@
 query:
   id: 1
   status: active
-  query_string: maria da penha
+  query_string: racismo
   full_text: true
   paging:
     page: 1

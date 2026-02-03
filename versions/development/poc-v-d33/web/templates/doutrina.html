@@ -41,6 +41,116 @@
     </form>
   </section>
 
+  <section class="summary-cards">
+    <article class="card">
+      <h3>Total de Casos</h3>
+      <p class="card-value">{{ summary_total }}</p>
+    </article>
+    <article class="card">
+      <h3>Casos por Ano (media)</h3>
+      <p class="card-value">
+        {% if cases_per_year_avg is not none %}
+          {{ cases_per_year_avg|round(1) }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+      <small class="card-meta">Evolucao: {{ case_trend_label }}</small>
+    </article>
+    <article class="card">
+      <h3>Media de Citacoes por Caso</h3>
+      <p class="card-value">
+        {% if avg_citations is not none %}
+          {{ avg_citations|round(2) }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+    </article>
+    <article class="card">
+      <h3>Doutrinas Mais Citadas</h3>
+      <ol class="card-list">
+        {% for item in top_doctrine_titles %}
+          <li>{{ item.label }} ({{ item.total }})</li>
+        {% else %}
+          <li>—</li>
+        {% endfor %}
+      </ol>
+    </article>
+    <article class="card">
+      <h3>Ministros Mais Ativos</h3>
+      <ol class="card-list">
+        {% for item in rapporteurs[:3] %}
+          <li>{{ item.label }} ({{ item.total }})</li>
+        {% else %}
+          <li>—</li>
+        {% endfor %}
+      </ol>
+    </article>
+    <article class="card">
+      <h3>Taxa de Votos Vencidos</h3>
+      <p class="card-value">
+        {% if vote_vencido_rate is not none %}
+          {{ vote_vencido_rate|round(1) }}%
+        {% else %}
+          —
+        {% endif %}
+      </p>
+    </article>
+    <article class="card">
+      <h3>Relacao Doutrina vs Legislacao</h3>
+      {% if citation_ratio %}
+        <p class="card-value">{{ citation_ratio.percent_doutrina|round(1) }}% doutrina</p>
+        <small class="card-meta">
+          {{ citation_ratio.doutrina }} doutrina / {{ citation_ratio.legislacao }} legislacao
+        </small>
+      {% else %}
+        <p class="card-value">—</p>
+      {% endif %}
+    </article>
+    <article class="card">
+      <h3>Distribuicao de Decisoes</h3>
+      <ol class="card-list">
+        {% for item in decision_distribution_pct[:3] %}
+          <li>{{ item.label }} ({{ item.percent|round(1) }}%)</li>
+        {% else %}
+          <li>—</li>
+        {% endfor %}
+      </ol>
+    </article>
+    <article class="card">
+      <h3>Casos com Mais Citacoes</h3>
+      <ol class="card-list">
+        {% for item in top_cases_by_doctrine %}
+          <li>{{ item.case_title }} ({{ item.total }})</li>
+        {% else %}
+          <li>—</li>
+        {% endfor %}
+      </ol>
+    </article>
+  </section>
+
+  <section class="chart-grid">
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>Casos por Ministro</h2>
+      </div>
+      <canvas id="ministerCasesChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>Distribuicao de Decisoes</h2>
+      </div>
+      <canvas id="decisionChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>Evolucao Temporal de Casos</h2>
+      </div>
+      <canvas id="casesByYearChart"></canvas>
+    </article>
+  </section>
+
   <section class="grid">
     <article class="panel">
       <div class="panel-header">
@@ -135,4 +245,94 @@
       {% endif %}
     </article>
   </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const ministerLabels = {{ chart_minister_labels|tojson }};
+    const ministerValues = {{ chart_minister_values|tojson }};
+    const decisionLabels = {{ chart_decision_labels|tojson }};
+    const decisionValues = {{ chart_decision_values|tojson }};
+    const yearLabels = {{ chart_year_labels|tojson }};
+    const yearValues = {{ chart_year_values|tojson }};
+
+    if (typeof Chart !== "undefined") {
+      Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+      Chart.defaults.color = "#1a1b1f";
+
+      const ministerCanvas = document.getElementById("ministerCasesChart");
+      if (ministerCanvas && ministerLabels.length) {
+        new Chart(ministerCanvas, {
+          type: "bar",
+          data: {
+            labels: ministerLabels,
+            datasets: [
+              {
+                label: "Numero de Casos",
+                data: ministerValues,
+                backgroundColor: "rgba(15, 107, 106, 0.4)",
+                borderColor: "rgba(15, 107, 106, 1)",
+                borderWidth: 1
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      }
+
+      const decisionCanvas = document.getElementById("decisionChart");
+      if (decisionCanvas && decisionLabels.length) {
+        new Chart(decisionCanvas, {
+          type: "pie",
+          data: {
+            labels: decisionLabels,
+            datasets: [
+              {
+                data: decisionValues,
+                backgroundColor: [
+                  "rgba(15, 107, 106, 0.7)",
+                  "rgba(31, 140, 127, 0.7)",
+                  "rgba(118, 179, 157, 0.7)",
+                  "rgba(239, 203, 155, 0.7)"
+                ]
+              }
+            ]
+          },
+          options: {
+            responsive: true
+          }
+        });
+      }
+
+      const yearCanvas = document.getElementById("casesByYearChart");
+      if (yearCanvas && yearLabels.length) {
+        new Chart(yearCanvas, {
+          type: "line",
+          data: {
+            labels: yearLabels,
+            datasets: [
+              {
+                label: "Casos por Ano",
+                data: yearValues,
+                borderColor: "rgba(31, 140, 127, 1)",
+                backgroundColor: "rgba(31, 140, 127, 0.2)",
+                tension: 0.3,
+                fill: true
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      }
+    }
+  </script>
 {% endblock %}

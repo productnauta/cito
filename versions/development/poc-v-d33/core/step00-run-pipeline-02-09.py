@@ -111,6 +111,7 @@ def _render_box(lines: List[str], width: int = 47, with_separator: bool = False)
 
 def _script_title(script: str) -> str:
     mapping = {
+        "step01-extract-cases.py": "EXTRACT CASES",
         "step02-get-case-html.py": "GET CASE HTML",
         "step03-clean-case-html.py": "CLEAN HTML",
         "step04-extract-sessions.py": "EXTRACT SECTIONS",
