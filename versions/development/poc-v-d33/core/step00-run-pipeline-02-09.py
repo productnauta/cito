@@ -231,6 +231,10 @@ def main() -> int:
         "--case-url",
         help="caseContent.caseUrl (use se o step02 nao encontrar URL no MongoDB).",
     )
+    parser.add_argument(
+        "--case-query-id",
+        help="Filtra apenas processos relacionados a um case_query._id.",
+    )
     args = parser.parse_args()
 
     # Carregar pipeline.yaml
@@ -267,6 +271,8 @@ def main() -> int:
     run_mode = str(mode_cfg.get("run_mode") or "").strip()
     stf_decision_id_cfg = str(mode_cfg.get("stf_decision_id") or "").strip() if mode_cfg.get("stf_decision_id") else None
 
+    case_query_id = (args.case_query_id or "").strip()
+
     if run_mode not in {"one", "all"}:
         mode, stf_decision_id = _prompt_mode()
     else:
@@ -278,9 +284,16 @@ def main() -> int:
     else:
         filter_cfg = mode_cfg.get("filter") if isinstance(mode_cfg.get("filter"), dict) else {}
         pipeline_status = str(filter_cfg.get("processing_pipeline_status") or "extracted")
-        query = {"processing.pipelineStatus": pipeline_status}
+        query: Dict[str, Any] = {}
+        if case_query_id:
+            query["identity.caseQueryId"] = case_query_id
+        else:
+            query["processing.pipelineStatus"] = pipeline_status
         projection = {"identity.stfDecisionId": 1}
-        log(f"Buscando documentos com processing.pipelineStatus = {pipeline_status}")
+        if case_query_id:
+            log(f"Buscando documentos com identity.caseQueryId = {case_query_id}")
+        else:
+            log(f"Buscando documentos com processing.pipelineStatus = {pipeline_status}")
         docs = list(col.find(query, projection=projection))
         stf_ids = [
             ((doc.get("identity") or {}).get("stfDecisionId") or "").strip()

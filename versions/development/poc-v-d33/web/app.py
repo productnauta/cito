@@ -1557,6 +1557,9 @@ def _compute_step_summary(
     return {
         "status": status,
         "total": total,
+        "success": success,
+        "error": failed,
+        "remaining": max(total - success - failed, 0),
         "started_at": row.get("startedAt"),
         "finished_at": row.get("finishedAt"),
     }
@@ -1609,6 +1612,9 @@ def _compute_processing_step_summary(
     return {
         "status": status,
         "total": total,
+        "success": success,
+        "error": failed,
+        "remaining": max(total - success - failed, 0),
         "started_at": row.get("startedAt"),
         "finished_at": row.get("finishedAt"),
     }
@@ -1627,6 +1633,9 @@ def _step_summary_for_script(
         return {
             "status": status if status in {"new", "extracting", "extracted", "error"} else "unknown",
             "total": total,
+            "success": total if status == "extracted" else 0,
+            "error": total if status == "error" else 0,
+            "remaining": 0 if status in {"extracted", "error"} else total,
             "started_at": case_query_doc.get("extractingAt"),
             "finished_at": case_query_doc.get("processedDate"),
         }
@@ -1707,7 +1716,15 @@ def _step_summary_for_script(
             start_field="processing.caseDecisionDetailsAt",
             end_field="processing.caseDecisionDetailsAt",
         )
-    return {"status": "unknown", "total": 0, "started_at": None, "finished_at": None}
+    return {
+        "status": "unknown",
+        "total": 0,
+        "success": 0,
+        "error": 0,
+        "remaining": 0,
+        "started_at": None,
+        "finished_at": None,
+    }
 
 app = Flask(__name__)
 
@@ -2193,6 +2210,23 @@ def scraping_execute(job_id: str) -> Any:
             {"queryString": job_query.get("queryString")},
             sort=[("extractionTimestamp", -1)],
         )
+        if latest_run:
+            step01_path = str(BASE_DIR / "core" / "step01-extract-cases.py")
+            step01_result = subprocess.run(
+                [sys.executable, step01_path, "--case-query-id", str(latest_run.get("_id"))],
+                cwd=str(BASE_DIR / "core"),
+                capture_output=True,
+                text=True,
+            )
+            _web_log(
+                "scraping.execute.step01",
+                {
+                    "job_id": job_id,
+                    "case_query_id": str(latest_run.get("_id")),
+                    "return_code": step01_result.returncode,
+                    "remote_addr": request.remote_addr,
+                },
+            )
         jobs_col.update_one(
             {"_id": obj_id},
             {
@@ -2264,6 +2298,9 @@ def scraping_detail(run_id: str) -> Any:
                 "name": step["script"],
                 "status": summary["status"],
                 "total": summary["total"],
+                "success": summary.get("success", 0),
+                "error": summary.get("error", 0),
+                "remaining": summary.get("remaining", 0),
                 "started_at": summary["started_at"],
                 "finished_at": summary["finished_at"],
             }
@@ -2324,29 +2361,10 @@ def scraping_pipeline_run(run_id: str) -> Any:
         return redirect(url_for("scraping"))
 
     core_dir = BASE_DIR / "core"
-    step01_path = core_dir / "step01-extract-cases.py"
     pipeline_path = core_dir / "step00-run-pipeline-02-09.py"
 
-    step01_result = subprocess.run(
-        [sys.executable, str(step01_path), "--case-query-id", run_id],
-        cwd=str(core_dir),
-        capture_output=True,
-        text=True,
-    )
-    _web_log(
-        "pipeline.run.step01",
-        {
-            "case_query_id": run_id,
-            "return_code": step01_result.returncode,
-            "remote_addr": request.remote_addr,
-        },
-    )
-
-    if step01_result.returncode != 0:
-        return redirect(url_for("scraping_detail", run_id=run_id))
-
     pipeline_result = subprocess.run(
-        [sys.executable, str(pipeline_path)],
+        [sys.executable, str(pipeline_path), "--case-query-id", run_id],
         cwd=str(core_dir),
         capture_output=True,
         text=True,
@@ -2356,6 +2374,23 @@ def scraping_pipeline_run(run_id: str) -> Any:
         {
             "case_query_id": run_id,
             "return_code": pipeline_result.returncode,
+            "remote_addr": request.remote_addr,
+        },
+    )
+    latest_log = None
+    try:
+        log_dir = core_dir / "logs"
+        if log_dir.exists():
+            logs = list(log_dir.glob("pipeline-*.log"))
+            if logs:
+                latest_log = str(max(logs, key=lambda p: p.stat().st_mtime))
+    except Exception:
+        latest_log = None
+    _web_log(
+        "pipeline.run.log_file",
+        {
+            "case_query_id": run_id,
+            "log_file": latest_log,
             "remote_addr": request.remote_addr,
         },
     )

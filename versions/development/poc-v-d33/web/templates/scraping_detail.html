@@ -43,7 +43,7 @@
       </div>
     </div>
     <p class="panel-copy helper">
-      "Executar pipeline" dispara imediatamente o <code>step01-extract-cases.py</code> e depois o runner configurado em <code>pipeline.yaml</code>.
+      "Executar pipeline" dispara imediatamente os steps do <code>pipeline.yaml</code> a partir do <code>step02</code>.
     </p>
   </section>
 
@@ -116,9 +116,11 @@
         <tr>
           <th>Etapa</th>
           <th>Status</th>
+          <th>Sucesso</th>
+          <th>Erro</th>
+          <th>Itens Restantes</th>
           <th>Inicio</th>
           <th>Termino</th>
-          <th>Total itens</th>
         </tr>
       </thead>
       <tbody>
@@ -126,9 +128,11 @@
           <tr>
             <td>{{ step.name }}</td>
             <td><span class="{{ step.status_class }}">{{ step.status_label }}</span></td>
+            <td>{{ step.success }}</td>
+            <td>{{ step.error }}</td>
+            <td>{{ step.remaining }}</td>
             <td>{{ step.started_at_fmt or '—' }}</td>
             <td>{{ step.finished_at_fmt or '—' }}</td>
-            <td>{{ step.total }}</td>
           </tr>
         {% endfor %}
       </tbody>
