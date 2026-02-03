@@ -16,7 +16,7 @@ http:
 
 runtime:
   headed_mode: false
-  output_dir: poc/v-a33-240125/data/html
+  output_dir: /data
 
 url:
   scheme: https

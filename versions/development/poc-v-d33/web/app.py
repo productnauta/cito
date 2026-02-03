@@ -918,6 +918,68 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     }
 
 
+def _aggregate_process_kpis(collection: Collection, match: Dict[str, Any]) -> Dict[str, Any]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                },
+                "_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}},
+                "_legislationCount": {"$size": {"$ifNull": [f"${LEGISLATION_PATH}", []]}},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$group": {
+                "_id": None,
+                "total_processes": {"$sum": 1},
+                "rapporteurs": {"$addToSet": "$_rapporteur"},
+                "total_doctrines": {"$sum": "$_doctrineCount"},
+                "total_legislation": {"$sum": "$_legislationCount"},
+            }
+        }
+    )
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return {
+            "total_processes": 0,
+            "processes_per_rapporteur": None,
+            "doctrines_per_case": None,
+            "legislation_per_case": None,
+        }
+
+    row = result[0]
+    total = int(row.get("total_processes") or 0)
+    rapporteurs = [r for r in (row.get("rapporteurs") or []) if r]
+    num_rapporteurs = len(rapporteurs)
+    total_doctrines = int(row.get("total_doctrines") or 0)
+    total_legislation = int(row.get("total_legislation") or 0)
+
+    processes_per_rapporteur = None
+    if total > 0 and num_rapporteurs > 0:
+        processes_per_rapporteur = total / num_rapporteurs
+
+    doctrines_per_case = None
+    if total > 0:
+        doctrines_per_case = round(total_doctrines / total)
+
+    legislation_per_case = None
+    if total > 0:
+        legislation_per_case = round(total_legislation / total)
+
+    return {
+        "total_processes": total,
+        "processes_per_rapporteur": processes_per_rapporteur,
+        "doctrines_per_case": doctrines_per_case,
+        "legislation_per_case": legislation_per_case,
+    }
+
+
 def _aggregate_author_insights(
     collection: Collection, author_name: str, match: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -1546,12 +1608,15 @@ def _compute_step_summary(
     success = int(row.get("success") or 0)
     failed = int(row.get("failed") or 0)
 
+    started_at = row.get("startedAt")
     if total == 0:
         status = "scheduled"
     elif failed > 0:
         status = "failed"
     elif success >= total:
         status = "completed"
+    elif started_at is None:
+        status = "scheduled"
     else:
         status = "running"
 
@@ -1561,7 +1626,7 @@ def _compute_step_summary(
         "success": success,
         "error": failed,
         "remaining": max(total - success - failed, 0),
-        "started_at": row.get("startedAt"),
+        "started_at": started_at,
         "finished_at": row.get("finishedAt"),
     }
 
@@ -1601,12 +1666,15 @@ def _compute_processing_step_summary(
     success = int(row.get("success") or 0)
     failed = int(row.get("failed") or 0)
 
+    started_at = row.get("startedAt")
     if total == 0:
         status = "scheduled"
     elif failed > 0:
         status = "failed"
     elif success >= total:
         status = "completed"
+    elif started_at is None:
+        status = "scheduled"
     else:
         status = "running"
 
@@ -1616,7 +1684,7 @@ def _compute_processing_step_summary(
         "success": success,
         "error": failed,
         "remaining": max(total - success - failed, 0),
-        "started_at": row.get("startedAt"),
+        "started_at": started_at,
         "finished_at": row.get("finishedAt"),
     }
 
@@ -1651,29 +1719,32 @@ def _step_summary_for_script(
             end_field="processing.caseScrapeAt",
         )
     if script == "step03-clean-case-html.py":
-        return _compute_processing_step_summary(
+        return _compute_step_summary(
             case_data_col,
             base_match,
-            success_field="processing.caseHtmlCleanedAt",
-            error_field="processing.caseHtmlCleanError",
+            status_field="processing.caseHtmlCleanStatus",
+            success_values=["success"],
+            error_values=["error"],
             start_field="processing.caseHtmlCleaningAt",
             end_field="processing.caseHtmlCleanedAt",
         )
     if script == "step04-extract-sessions.py":
-        return _compute_processing_step_summary(
+        return _compute_step_summary(
             case_data_col,
             base_match,
-            success_field="processing.caseSectionsExtractedAt",
-            error_field="processing.caseSectionsError",
+            status_field="processing.caseSectionsStatus",
+            success_values=["success"],
+            error_values=["error"],
             start_field="processing.caseSectionsExtractingAt",
             end_field="processing.caseSectionsExtractedAt",
         )
     if script == "step05-extract-keywords-parties.py":
-        return _compute_processing_step_summary(
+        return _compute_step_summary(
             case_data_col,
             base_match,
-            success_field="processing.partiesKeywords.finishedAt",
-            error_field="status.error",
+            status_field="processing.partiesKeywordsStatus",
+            success_values=["success"],
+            error_values=["error"],
             start_field="processing.partiesKeywords.finishedAt",
             end_field="processing.partiesKeywords.finishedAt",
         )
@@ -2472,6 +2543,7 @@ def processos() -> Any:
     limit = _limit_value(request.args.get("limit"), default=25)
     total = collection.count_documents(match)
     rows = _fetch_processes(collection, match, limit=limit)
+    kpis = _aggregate_process_kpis(collection, match)
 
     class_options = _aggregate_case_classes(collection, {})
     rapporteur_options = _aggregate_rapporteur_options(collection)
@@ -2492,10 +2564,29 @@ def processos() -> Any:
         author_suggestions=author_suggestions,
         processes=rows,
         total=total,
+        kpis=kpis,
         limit=limit,
         next_limit=next_limit,
         show_more=total > limit,
     )
+
+
+@app.route("/processos/kpis")
+def processos_kpis() -> Any:
+    filters = _get_process_filters(request.args)
+    collection = _get_collection()
+    match = _build_process_match(filters)
+    kpis = _aggregate_process_kpis(collection, match)
+    return {
+        "totalProcesses": kpis["total_processes"],
+        "processesPerRapporteur": kpis["processes_per_rapporteur"],
+        "doctrinesPerCase": kpis["doctrines_per_case"],
+        "legislationCitationsPerCase": kpis["legislation_per_case"],
+        "meta": {
+            "filtersApplied": {k: v for k, v in filters.items() if v},
+            "computedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
 
 
 @app.route("/processos/<process_id>")

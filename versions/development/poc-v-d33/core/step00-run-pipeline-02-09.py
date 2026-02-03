@@ -278,12 +278,10 @@ def main() -> int:
     mode_cfg = pipeline_cfg.get("mode") if isinstance(pipeline_cfg.get("mode"), dict) else {}
     logging_cfg = pipeline_cfg.get("logging") if isinstance(pipeline_cfg.get("logging"), dict) else {}
 
-    # Ajusta logging conforme config
+    # Ajusta logging conforme config (padrao fixo: core/logs)
     global LOG_DIR, LOG_FILE_PATH, LOG_TO_FILE, RUN_ID
     LOG_TO_FILE = logging_cfg.get("enabled") is not False
-    if isinstance(logging_cfg.get("log_dir"), str) and logging_cfg.get("log_dir"):
-        log_dir_cfg = Path(str(logging_cfg.get("log_dir"))).expanduser()
-        LOG_DIR = log_dir_cfg if log_dir_cfg.is_absolute() else (BASE_DIR.parent / log_dir_cfg)
+    LOG_DIR = BASE_DIR / "logs"
     if isinstance(logging_cfg.get("log_file"), str) and logging_cfg.get("log_file"):
         LOG_FILE_PATH = LOG_DIR / str(logging_cfg.get("log_file"))
 

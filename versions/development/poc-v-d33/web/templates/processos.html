@@ -56,6 +56,48 @@
     </form>
   </section>
 
+  <section class="summary-cards" id="process-kpis">
+    <article class="card">
+      <h3>Total de Processos</h3>
+      <p class="card-value" data-kpi="total">
+        {{ kpis.total_processes }}
+      </p>
+    </article>
+    <article class="card">
+      <h3>Processos/Relator</h3>
+      <p class="card-value" data-kpi="per-rapporteur">
+        {% if kpis.processes_per_rapporteur is not none %}
+          {{ '%.2f'|format(kpis.processes_per_rapporteur) }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+      <span class="card-meta">processos por relator</span>
+    </article>
+    <article class="card">
+      <h3>Doutrinas por Caso</h3>
+      <p class="card-value" data-kpi="doctrines">
+        {% if kpis.doctrines_per_case is not none %}
+          {{ kpis.doctrines_per_case }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+      <span class="card-meta">citacoes doutrinarias/caso</span>
+    </article>
+    <article class="card">
+      <h3>Citacoes de Legislacao</h3>
+      <p class="card-value" data-kpi="legislation">
+        {% if kpis.legislation_per_case is not none %}
+          {{ kpis.legislation_per_case }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
+      <span class="card-meta">citacoes de legislacao/caso</span>
+    </article>
+  </section>
+
   <section class="panel">
     {% if processes %}
       <table class="data-table">
@@ -91,4 +133,30 @@
       <p class="empty">Nenhum processo encontrado para os filtros atuais.</p>
     {% endif %}
   </section>
+
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      fetch(`/processos/kpis?${params.toString()}`)
+        .then((resp) => resp.json())
+        .then((data) => {
+          const elTotal = document.querySelector('[data-kpi="total"]');
+          const elPerRap = document.querySelector('[data-kpi="per-rapporteur"]');
+          const elDoc = document.querySelector('[data-kpi="doctrines"]');
+          const elLeg = document.querySelector('[data-kpi="legislation"]');
+
+          if (elTotal) elTotal.textContent = data.totalProcesses ?? "—";
+          if (elPerRap) {
+            elPerRap.textContent = data.processesPerRapporteur != null
+              ? data.processesPerRapporteur.toFixed(2)
+              : "—";
+          }
+          if (elDoc) elDoc.textContent = data.doctrinesPerCase != null ? data.doctrinesPerCase : "—";
+          if (elLeg) elLeg.textContent = data.legislationCitationsPerCase != null ? data.legislationCitationsPerCase : "—";
+        })
+        .catch(() => {
+          // mantém valores do render server-side
+        });
+    })();
+  </script>
 {% endblock %}

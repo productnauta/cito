@@ -336,6 +336,15 @@ def _extract_labeled_value(container, label_contains: str) -> Optional[str]:
     }
     stop_labels = r"(?:Órgão julgador|Relator(?:\\(a\\))?|Redator(?:\\(a\\))?|Julgamento|Publicação)"
     label_pattern = label_patterns.get(label_contains, re.escape(label_contains))
+    # Prioriza casos onde o valor está em um <h4> com <span> interno (ex.: Relator(a): <span>Min. ...</span>)
+    for h4 in container.find_all("h4"):
+        txt = h4.get_text(" ", strip=True)
+        if re.search(label_pattern, txt, flags=re.IGNORECASE):
+            span = h4.find("span")
+            if span:
+                value = _clean_str(span.get_text(" ", strip=True))
+                if value:
+                    return value
     for el in container.find_all(["h4", "span", "div"]):
         txt = el.get_text(" ", strip=True)
         if label_contains in txt:

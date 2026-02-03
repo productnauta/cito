@@ -45,14 +45,14 @@ pipeline:
     case_url_override: null
   logging:
     enabled: true
-    log_dir: versions/development/poc-v-d33/core/logs
+    log_dir: /logs
     log_file: pipeline-02-09.log
     level: info
   mongo:
     collection: case_data
   output:
     persist_html_to_disk: true
-    output_dir: versions/development/poc-v-d33/core/data/html
+    output_dir: /html
   diagnostics:
     print_step_rc: true
     print_timing: true
