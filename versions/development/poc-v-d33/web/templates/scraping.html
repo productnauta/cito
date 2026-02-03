@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+
+{% block content %}
+  {% if alerts %}
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <h2>Alertas Recentes</h2>
+          <p class="panel-copy">Falhas e interrupcoes detectadas nas ultimas execucoes.</p>
+        </div>
+        <span class="chip">{{ alerts|length }} alerta(s)</span>
+      </div>
+      <div class="alert-grid">
+        {% for alert in alerts %}
+          <div class="alert-card">
+            <h3>{{ alert.title }}</h3>
+            <p>{{ alert.detail }}</p>
+            <span>{{ alert.time }}</span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Agendar Nova Execucao</h2>
+        <p class="panel-copy">Configure a query conforme o <code>query.yaml</code> e escolha data/hora para disparo.</p>
+      </div>
+      <span class="chip">step00-search-stf.py</span>
+    </div>
+    <form class="form-grid" method="post" action="{{ url_for('scraping_schedule') }}">
+      <div class="field">
+        <label for="query_string">Termo de busca</label>
+        <input id="query_string" name="query_string" type="text" value="{{ defaults.get('query_string', '') }}" required />
+      </div>
+      <div class="field">
+        <label for="process_class_sigla">Classe processual (siglas separadas por virgula)</label>
+        <input id="process_class_sigla" name="process_class_sigla" type="text" value="{{ defaults.get('process_class_sigla', []) | join(', ') }}" />
+      </div>
+      <div class="field">
+        <label for="page">Pagina</label>
+        <input id="page" name="page" type="number" min="1" value="{{ defaults.get('page', 1) }}" />
+      </div>
+      <div class="field">
+        <label for="page_size">Resultados por pagina</label>
+        <input id="page_size" name="page_size" type="number" min="1" value="{{ defaults.get('page_size', 50) }}" />
+      </div>
+      <div class="field">
+        <label for="sort">Campo de ordenacao</label>
+        <input id="sort" name="sort" type="text" value="{{ defaults.get('sort', '_score') }}" />
+      </div>
+      <div class="field">
+        <label for="sort_by">Direcao</label>
+        <select id="sort_by" name="sort_by">
+          <option value="desc" {% if defaults.get('sort_by') == 'desc' %}selected{% endif %}>Desc</option>
+          <option value="asc" {% if defaults.get('sort_by') == 'asc' %}selected{% endif %}>Asc</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="request_delay_seconds">Delay entre requisicoes (segundos)</label>
+        <input id="request_delay_seconds" name="request_delay_seconds" type="number" step="0.1" min="0" value="{{ defaults.get('request_delay_seconds', 0) }}" />
+      </div>
+      <div class="field">
+        <label for="base">Base</label>
+        <input id="base" name="base" type="text" value="{{ defaults.get('base', 'acordaos') }}" />
+      </div>
+      <div class="field">
+        <label for="date_start">Data inicial (opcional)</label>
+        <input id="date_start" name="date_start" type="date" />
+      </div>
+      <div class="field">
+        <label for="date_end">Data final (opcional)</label>
+        <input id="date_end" name="date_end" type="date" />
+      </div>
+      <div class="field">
+        <label for="scheduled_for">Agendar para</label>
+        <input id="scheduled_for" name="scheduled_for" type="datetime-local" required />
+      </div>
+
+      <div class="field toggle-group">
+        <span>Opcoes da busca</span>
+        <label class="toggle">
+          <input type="checkbox" name="full_text" {% if defaults.get('full_text') %}checked{% endif %} />
+          <span>Inteiro teor</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="exact_search" {% if defaults.get('exact_search') %}checked{% endif %} />
+          <span>Busca exata</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="synonym" {% if defaults.get('synonym') %}checked{% endif %} />
+          <span>Sinonimo</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="plural" {% if defaults.get('plural') %}checked{% endif %} />
+          <span>Plural</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="stems" {% if defaults.get('stems') %}checked{% endif %} />
+          <span>Radicais</span>
+        </label>
+      </div>
+
+      <div class="field toggle-group">
+        <span>Execucao</span>
+        <label class="toggle">
+          <input type="checkbox" name="ssl_verify" {% if defaults.get('ssl_verify') %}checked{% endif %} />
+          <span>Verificar TLS</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" name="headed_mode" {% if defaults.get('headed_mode') %}checked{% endif %} />
+          <span>Playwright com interface</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Agendar execucao</button>
+        <span class="helper">Um registro sera criado na fila de scraping.</span>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Agendamentos e Execucoes Internas</h2>
+        <p class="panel-copy">Itens que ainda nao foram iniciados ou estao em andamento.</p>
+      </div>
+      <span class="chip">{{ scheduled_jobs|length }} item(s)</span>
+    </div>
+    {% if scheduled_jobs %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Agendado para</th>
+            <th>Query</th>
+            <th>Classes</th>
+            <th>Resultados</th>
+            <th>Acoes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in scheduled_jobs %}
+            <tr>
+              <td><span class="{{ job.status_class }}">{{ job.status_label }}</span></td>
+              <td>{{ job.scheduled_for }}</td>
+              <td>{{ job.query_string }}</td>
+              <td>
+                {% if job.classes %}
+                  <div class="chip-row">
+                    {% for cls in job.classes %}
+                      <span class="chip small">{{ cls }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ job.result_count if job.result_count is not none else "—" }}</td>
+              <td>
+                {% if job.status == 'scheduled' %}
+                  <form method="post" action="{{ url_for('scraping_cancel', job_id=job.id) }}">
+                    <button type="submit" class="secondary">Cancelar</button>
+                  </form>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhum agendamento encontrado.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Execucoes Anteriores</h2>
+        <p class="panel-copy">Historico do scraping com link para detalhes da query.</p>
+      </div>
+      <span class="chip">{{ recent_runs|length }} execucao(oes)</span>
+    </div>
+    {% if recent_runs %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Data/Hora</th>
+            <th>Query</th>
+            <th>Classes</th>
+            <th>Resultados</th>
+            <th>Detalhes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in recent_runs %}
+            <tr>
+              <td><span class="{{ run.status_class }}">{{ run.status_label }}</span></td>
+              <td>{{ run.started_at }}</td>
+              <td>{{ run.query_string }}</td>
+              <td>
+                {% if run.classes %}
+                  <div class="chip-row">
+                    {% for cls in run.classes %}
+                      <span class="chip small">{{ cls }}</span>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ run.result_count }}</td>
+              <td><a href="{{ url_for('scraping_detail', run_id=run.id) }}">Ver detalhes</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhuma execucao registrada.</p>
+    {% endif %}
+  </section>
+{% endblock %}

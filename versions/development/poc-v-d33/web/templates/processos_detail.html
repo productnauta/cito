@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h1>{{ detail.title }}</h1>
+        <p class="panel-copy">Detalhes completos do processo e referencias extraidas.</p>
+      </div>
+      <a class="secondary" href="{{ url_for('processos') }}">Voltar</a>
+    </div>
+    <div class="summary-cards">
+      <article class="card">
+        <h3>Classe</h3>
+        <p class="card-value">{{ detail.case_class }}</p>
+        <span class="card-meta">STF ID: {{ detail.stf_id }}</span>
+      </article>
+      <article class="card">
+        <h3>Relator</h3>
+        <p class="card-value">{{ detail.rapporteur }}</p>
+        <span class="card-meta">Orgao: {{ detail.judging_body }}</span>
+      </article>
+      <article class="card">
+        <h3>Data de julgamento</h3>
+        <p class="card-value">{{ detail.judgment_date }}</p>
+        <span class="card-meta">Publicacao: {{ detail.publication_date }}</span>
+      </article>
+      <article class="card">
+        <h3>Doutrinas citadas</h3>
+        <p class="card-value">{{ detail.doctrine_refs|length }}</p>
+        <span class="card-meta">Total de referencias extraidas</span>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Doutrinas Citadas</h2>
+      <span class="chip">{{ detail.doctrine_refs|length }} citacao(oes)</span>
+    </div>
+    {% if detail.doctrine_refs %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Autor</th>
+            <th>Obra</th>
+            <th>Edicao</th>
+            <th>Ano</th>
+            <th>Pagina</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ref in detail.doctrine_refs %}
+            <tr>
+              <td>{{ ref.author or '-' }}</td>
+              <td>{{ ref.publicationTitle or '-' }}</td>
+              <td>{{ ref.edition or '-' }}</td>
+              <td>{{ ref.year or '-' }}</td>
+              <td>{{ ref.page or '-' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhuma doutrina encontrada.</p>
+    {% endif %}
+  </section>
+
+  <section class="grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Palavras-chave</h2>
+        <span class="chip">{{ detail.keywords|length }} itens</span>
+      </div>
+      {% if detail.keywords %}
+        <div class="chip-row">
+          {% for kw in detail.keywords %}
+            <span class="chip small">{{ kw }}</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">Sem palavras-chave cadastradas.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Legislacao Citada</h2>
+        <span class="chip">{{ detail.legislation_refs|length }} normas</span>
+      </div>
+      {% if detail.legislation_refs %}
+        <div class="list-stack">
+          {% for norm in detail.legislation_refs %}
+            <div class="list-item">
+              <strong>{{ norm.normIdentifier }}</strong>
+              <span>{{ norm.normDescription or '—' }}</span>
+              <span class="muted">{{ norm.normType }} | {{ norm.jurisdictionLevel }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">Sem referencias legislativas.</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Links para documentos originais</h2>
+    </div>
+    {% if detail.links %}
+      <ul class="link-list">
+        {% for link in detail.links %}
+          <li><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label }}</a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="empty">Nenhum link disponivel.</p>
+    {% endif %}
+  </section>
+{% endblock %}

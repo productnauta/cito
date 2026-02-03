@@ -11,14 +11,16 @@
       <header class="hero">
         <div class="brand">
           <span class="brand-mark">CITO</span>
-          <span class="brand-sub">Doutrina</span>
+          <span class="brand-sub">{{ brand_sub or "Doutrina" }}</span>
         </div>
         <nav class="hero-nav">
           <a href="{{ url_for('doutrina') }}">Doutrina</a>
+          <a href="{{ url_for('processos') }}">Processos</a>
           <a href="{{ url_for('ministros') }}">Ministros</a>
+          <a href="{{ url_for('scraping') }}">Scraping</a>
         </nav>
         <p class="hero-copy">
-          Painel de consulta e cruzamento de citacoes doutrinarias nos processos do STF.
+          {{ hero_copy or "Painel de consulta e cruzamento de citacoes doutrinarias nos processos do STF." }}
         </p>
       </header>
       <main class="content">

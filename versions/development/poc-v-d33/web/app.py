@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import parse_qs, urlparse
 
 from flask import Flask, redirect, render_template, request, url_for
+from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo.collection import Collection
+import yaml
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -30,7 +34,7 @@ CORE_DIR = BASE_DIR / "core"
 if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
-from utils.mongo import get_case_data_collection
+from utils.mongo import get_case_data_collection, get_mongo_client
 
 
 CONFIG_DIR = BASE_DIR / "config"
@@ -41,8 +45,14 @@ DECISION_DETAILS_PATH = "caseData.decisionDetails"
 MINISTER_VOTES_PATH = f"{DECISION_DETAILS_PATH}.ministerVotes"
 DECISION_RESULT_PATH = f"{DECISION_DETAILS_PATH}.decisionResult.finalDecision"
 CITATIONS_PATH = f"{DECISION_DETAILS_PATH}.citations"
+KEYWORDS_PATH = "caseData.caseKeywords"
+LEGISLATION_PATH = "caseData.legislationReferences"
+CASE_QUERY_COLLECTION = "case_query"
+SCRAPE_JOBS_COLLECTION = "scrape_jobs"
+QUERY_CONFIG_PATH = CONFIG_DIR / "query.yaml"
 
 _collection: Optional[Collection] = None
+_db = None
 
 
 def _get_collection() -> Collection:
@@ -50,6 +60,22 @@ def _get_collection() -> Collection:
     if _collection is None:
         _collection = get_case_data_collection(MONGO_CONFIG_PATH, COLLECTION_NAME)
     return _collection
+
+
+def _get_db():
+    global _db
+    if _db is None:
+        client, db_name = get_mongo_client(MONGO_CONFIG_PATH)
+        _db = client[db_name]
+    return _db
+
+
+def _get_case_query_collection() -> Collection:
+    return _get_db()[CASE_QUERY_COLLECTION]
+
+
+def _get_scrape_jobs_collection() -> Collection:
+    return _get_db()[SCRAPE_JOBS_COLLECTION]
 
 
 def _regex(value: str, exact: bool = False) -> Dict[str, Any]:
@@ -78,6 +104,99 @@ def _parse_date_value(value: str) -> Optional[date]:
         return None
 
 
+def _format_datetime(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value) if value else ""
+
+
+def _parse_datetime_local(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M")
+    except ValueError:
+        return None
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _load_query_defaults() -> Dict[str, Any]:
+    if not QUERY_CONFIG_PATH.exists():
+        return {}
+    raw = yaml.safe_load(QUERY_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    q = raw.get("query") if isinstance(raw.get("query"), dict) else {}
+    paging = q.get("paging") if isinstance(q.get("paging"), dict) else {}
+    sorting = q.get("sorting") if isinstance(q.get("sorting"), dict) else {}
+    http = raw.get("http") if isinstance(raw.get("http"), dict) else {}
+    runtime = raw.get("runtime") if isinstance(raw.get("runtime"), dict) else {}
+    fixed = raw.get("fixed_query_params") if isinstance(raw.get("fixed_query_params"), dict) else {}
+    flags = fixed.get("text_search_flags") if isinstance(fixed.get("text_search_flags"), dict) else {}
+    filters = fixed.get("filters") if isinstance(fixed.get("filters"), dict) else {}
+
+    return {
+        "query_string": str(q.get("query_string") or q.get("search_term") or "").strip(),
+        "full_text": _as_bool(q.get("full_text"), True),
+        "page": int(paging.get("page") or 1),
+        "page_size": int(paging.get("page_size") or 50),
+        "sort": str(sorting.get("sort") or sorting.get("field") or "_score"),
+        "sort_by": str(sorting.get("sort_by") or sorting.get("order") or "desc"),
+        "request_delay_seconds": float(http.get("request_delay_seconds") or 0),
+        "ssl_verify": _as_bool(http.get("ssl_verify"), True),
+        "headed_mode": _as_bool(runtime.get("headed_mode"), False),
+        "base": str(fixed.get("base") or "acordaos"),
+        "synonym": _as_bool(flags.get("synonym"), True),
+        "plural": _as_bool(flags.get("plural"), True),
+        "stems": _as_bool(flags.get("stems"), False),
+        "exact_search": _as_bool(flags.get("exact_search"), True),
+        "process_class_sigla": list(filters.get("process_class_sigla") or []),
+        "date_start": "",
+        "date_end": "",
+    }
+
+
+def _parse_query_url(query_url: str) -> Dict[str, Any]:
+    if not query_url:
+        return {}
+    parsed = urlparse(query_url)
+    qs = parse_qs(parsed.query)
+    return {
+        "query_string": (qs.get("queryString") or [""])[0],
+        "full_text": (qs.get("pesquisa_inteiro_teor") or [""])[0],
+        "page": (qs.get("page") or [""])[0],
+        "page_size": (qs.get("pageSize") or [""])[0],
+        "sort": (qs.get("sort") or [""])[0],
+        "sort_by": (qs.get("sortBy") or [""])[0],
+        "base": (qs.get("base") or [""])[0],
+        "synonym": (qs.get("sinonimo") or [""])[0],
+        "plural": (qs.get("plural") or [""])[0],
+        "stems": (qs.get("radicais") or [""])[0],
+        "exact_search": (qs.get("buscaExata") or [""])[0],
+        "process_class_sigla": qs.get("processo_classe_processual_unificada_classe_sigla") or [],
+    }
+
+
+def _status_meta() -> Dict[str, Dict[str, str]]:
+    return {
+        "scheduled": {"label": "Agendado", "class": "status-pill status-pill--scheduled"},
+        "running": {"label": "Em andamento", "class": "status-pill status-pill--running"},
+        "completed": {"label": "Concluído", "class": "status-pill status-pill--success"},
+        "failed": {"label": "Falhou", "class": "status-pill status-pill--danger"},
+        "canceled": {"label": "Cancelado", "class": "status-pill status-pill--muted"},
+        "extracted": {"label": "Concluído", "class": "status-pill status-pill--success"},
+        "extracting": {"label": "Em andamento", "class": "status-pill status-pill--running"},
+        "new": {"label": "Agendado", "class": "status-pill status-pill--scheduled"},
+        "error": {"label": "Falhou", "class": "status-pill status-pill--danger"},
+        "unknown": {"label": "Desconhecido", "class": "status-pill status-pill--muted"},
+    }
+
+
 def _get_filters(args: Dict[str, Any]) -> Dict[str, str]:
     return {
         "author": str(args.get("author") or "").strip(),
@@ -86,6 +205,17 @@ def _get_filters(args: Dict[str, Any]) -> Dict[str, str]:
         "judgment_year": str(args.get("judgment_year") or "").strip(),
         "rapporteur": str(args.get("rapporteur") or "").strip(),
         "judging_body": str(args.get("judging_body") or "").strip(),
+    }
+
+
+def _get_process_filters(args: Dict[str, Any]) -> Dict[str, str]:
+    return {
+        "title": str(args.get("title") or "").strip(),
+        "case_class": str(args.get("case_class") or "").strip(),
+        "rapporteur": str(args.get("rapporteur") or "").strip(),
+        "date_start": str(args.get("date_start") or "").strip(),
+        "date_end": str(args.get("date_end") or "").strip(),
+        "author": str(args.get("author") or "").strip(),
     }
 
 
@@ -236,11 +366,11 @@ def _aggregate_authors(collection: Collection, filters: Dict[str, str]) -> List[
         {
             "$group": {
                 "_id": f"${DOCTRINE_PATH}.author",
-                "cases": {"$addToSet": _case_id_expr()},
+                "total": {"$sum": 1},
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": {"$size": "$cases"}}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
     pipeline.append({"$sort": {"total": -1, "label": 1}})
     return list(collection.aggregate(pipeline))
 
@@ -266,11 +396,11 @@ def _aggregate_titles(collection: Collection, filters: Dict[str, str]) -> List[D
         {
             "$group": {
                 "_id": f"${DOCTRINE_PATH}.publicationTitle",
-                "cases": {"$addToSet": _case_id_expr()},
+                "total": {"$sum": 1},
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": {"$size": "$cases"}}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
     pipeline.append({"$sort": {"total": -1, "label": 1}})
     return list(collection.aggregate(pipeline))
 
@@ -552,6 +682,267 @@ def _aggregate_top_doctrine_titles(
     return list(collection.aggregate(pipeline))
 
 
+def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
+    and_clauses: List[Dict[str, Any]] = []
+
+    title_value = filters.get("title") or ""
+    case_class = filters.get("case_class") or ""
+    rapporteur = filters.get("rapporteur") or ""
+    author = filters.get("author") or ""
+    date_start = _parse_date_value(filters.get("date_start") or "")
+    date_end = _parse_date_value(filters.get("date_end") or "")
+
+    if title_value:
+        rx = _regex(title_value)
+        and_clauses.append(
+            {
+                "$or": [
+                    {"identity.caseTitle": rx},
+                    {"caseTitle": rx},
+                ]
+            }
+        )
+
+    if case_class:
+        rx = _regex(case_class, exact=True)
+        and_clauses.append(
+            {
+                "$or": [
+                    {"identity.caseClass": rx},
+                    {"caseIdentification.caseClass": rx},
+                ]
+            }
+        )
+
+    if rapporteur:
+        rx = _regex(rapporteur, exact=True)
+        and_clauses.append(
+            {
+                "$or": [
+                    {"identity.rapporteur": rx},
+                    {"caseIdentification.rapporteur": rx},
+                ]
+            }
+        )
+
+    if author:
+        and_clauses.append(
+            {DOCTRINE_PATH: {"$elemMatch": {"author": _regex(author)}}}
+        )
+
+    if date_start or date_end:
+        date_match: Dict[str, Any] = {}
+        if date_start:
+            date_match["$gte"] = datetime.combine(date_start, datetime.min.time())
+        if date_end:
+            date_match["$lt"] = datetime.combine(date_end + timedelta(days=1), datetime.min.time())
+        and_clauses.append({"dates.judgmentDate": date_match})
+
+    if not and_clauses:
+        return {}
+    return {"$and": and_clauses}
+
+
+def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int = 25) -> List[Dict[str, Any]]:
+    projection = {
+        "identity.stfDecisionId": 1,
+        "identity.caseTitle": 1,
+        "identity.caseClass": 1,
+        "identity.rapporteur": 1,
+        "caseTitle": 1,
+        "caseIdentification.caseClass": 1,
+        "caseIdentification.rapporteur": 1,
+        "dates.judgmentDate": 1,
+        DOCTRINE_PATH: 1,
+    }
+    cursor = collection.find(match, projection=projection).sort("dates.judgmentDate", -1)
+    if limit:
+        cursor = cursor.limit(limit)
+
+    rows: List[Dict[str, Any]] = []
+    for doc in cursor:
+        identity = doc.get("identity") or {}
+        case_ident = doc.get("caseIdentification") or {}
+        case_title = identity.get("caseTitle") or doc.get("caseTitle") or "-"
+        case_class = identity.get("caseClass") or case_ident.get("caseClass") or "-"
+        rapporteur = identity.get("rapporteur") or case_ident.get("rapporteur") or "-"
+        judgment_date = _format_date((doc.get("dates") or {}).get("judgmentDate"))
+        doctrine_count = len((doc.get("caseData") or {}).get("doctrineReferences") or [])
+        stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
+
+        rows.append(
+            {
+                "case_title": case_title,
+                "case_class": case_class,
+                "rapporteur": rapporteur,
+                "judgment_date": judgment_date,
+                "doctrine_count": doctrine_count,
+                "stf_id": stf_id,
+            }
+        )
+    return rows
+
+
+def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[Dict[str, Any]]:
+    query: Dict[str, Any] = {}
+    try:
+        query = {"_id": ObjectId(process_id)}
+    except InvalidId:
+        query = {"identity.stfDecisionId": process_id}
+
+    doc = collection.find_one(query)
+    if not doc:
+        return None
+
+    identity = doc.get("identity") or {}
+    case_ident = doc.get("caseIdentification") or {}
+    dates = doc.get("dates") or {}
+    case_content = doc.get("caseContent") or {}
+    case_data = doc.get("caseData") or {}
+
+    doctrine_refs = case_data.get("doctrineReferences") or []
+    legislation_refs = case_data.get("legislationReferences") or []
+    keywords = case_data.get("caseKeywords") or []
+
+    links = []
+    if case_content.get("caseUrl"):
+        links.append({"label": "Pagina do processo", "url": case_content.get("caseUrl")})
+    if identity.get("caseUrl"):
+        links.append({"label": "URL de identificacao", "url": identity.get("caseUrl")})
+
+    return {
+        "id": str(doc.get("_id")),
+        "stf_id": identity.get("stfDecisionId") or str(doc.get("_id")),
+        "title": identity.get("caseTitle") or doc.get("caseTitle") or "-",
+        "case_class": identity.get("caseClass") or case_ident.get("caseClass") or "-",
+        "rapporteur": identity.get("rapporteur") or case_ident.get("rapporteur") or "-",
+        "judgment_date": _format_date(dates.get("judgmentDate")),
+        "publication_date": _format_date(dates.get("publicationDate")),
+        "judging_body": identity.get("judgingBody") or case_ident.get("judgingBody") or "-",
+        "doctrine_refs": doctrine_refs,
+        "keywords": keywords,
+        "legislation_refs": legislation_refs,
+        "links": links,
+    }
+
+
+def _aggregate_author_insights(
+    collection: Collection, author_name: str, match: Dict[str, Any]
+) -> Dict[str, Any]:
+    pipeline = [
+        {"$match": match},
+        {"$unwind": f"${DOCTRINE_PATH}"},
+        {"$match": {f"{DOCTRINE_PATH}.author": _regex(author_name, exact=True)}},
+        {
+            "$addFields": {
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                },
+                "_caseId": _case_id_expr(),
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "total_citations": {"$sum": 1},
+                "unique_citations": {
+                    "$addToSet": {
+                        "case": "$_caseId",
+                        "title": f"${DOCTRINE_PATH}.publicationTitle",
+                    }
+                },
+                "top_work": {"$push": f"${DOCTRINE_PATH}.publicationTitle"},
+                "rapporteurs": {"$push": "$_rapporteur"},
+            }
+        },
+    ]
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return {
+            "total_citations": 0,
+            "unique_citations": 0,
+            "top_work": "—",
+            "top_rapporteur": "—",
+        }
+
+    row = result[0]
+    total_citations = int(row.get("total_citations") or 0)
+    unique_citations = len(row.get("unique_citations") or [])
+
+    top_work = "—"
+    work_counts: Dict[str, int] = {}
+    for item in row.get("top_work") or []:
+        if not item:
+            continue
+        work_counts[item] = work_counts.get(item, 0) + 1
+    if work_counts:
+        top_work = sorted(work_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+
+    rapporteur_counts: Dict[str, int] = {}
+    for item in row.get("rapporteurs") or []:
+        if not item:
+            continue
+        rapporteur_counts[item] = rapporteur_counts.get(item, 0) + 1
+    top_rapporteur = "—"
+    if rapporteur_counts:
+        top_rapporteur = sorted(rapporteur_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+
+    return {
+        "total_citations": total_citations,
+        "unique_citations": unique_citations,
+        "top_work": top_work,
+        "top_rapporteur": top_rapporteur,
+    }
+
+
+def _fetch_author_citations(
+    collection: Collection,
+    author_name: str,
+    match: Dict[str, Any],
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    pipeline = [
+        {"$match": match},
+        {"$unwind": f"${DOCTRINE_PATH}"},
+        {"$match": {f"{DOCTRINE_PATH}.author": _regex(author_name, exact=True)}},
+        {
+            "$addFields": {
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                },
+                "_caseClass": {
+                    "$ifNull": ["$identity.caseClass", "$caseIdentification.caseClass"]
+                },
+                "_caseTitle": {"$ifNull": ["$identity.caseTitle", "$caseTitle"]},
+                "_caseId": _case_id_expr(),
+                "_caseUrl": {
+                    "$ifNull": ["$caseContent.caseUrl", "$identity.caseUrl"]
+                },
+                "_judgmentDate": "$dates.judgmentDate",
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "case_title": "$_caseTitle",
+                "rapporteur": "$_rapporteur",
+                "work": f"${DOCTRINE_PATH}.publicationTitle",
+                "case_class": "$_caseClass",
+                "judgment_date": "$_judgmentDate",
+                "case_url": "$_caseUrl",
+                "case_id": "$_caseId",
+            }
+        },
+        {"$sort": {"judgment_date": -1}},
+    ]
+    if limit:
+        pipeline.append({"$limit": limit})
+    rows = list(collection.aggregate(pipeline))
+    for row in rows:
+        row["judgment_date"] = _format_date(row.get("judgment_date"))
+    return rows
+
+
 def _aggregate_top_cases_by_doctrine(
     collection: Collection, match: Dict[str, Any], limit: int = 3
 ) -> List[Dict[str, Any]]:
@@ -634,6 +1025,36 @@ def _aggregate_case_classes(collection: Collection, case_match: Dict[str, Any]) 
     pipeline.append({"$project": {"_id": 0, "label": "$_id"}})
     classes = [row["label"] for row in collection.aggregate(pipeline)]
     return sorted(classes, key=str.casefold)
+
+
+def _aggregate_rapporteur_options(collection: Collection) -> List[str]:
+    pipeline: List[Dict[str, Any]] = [
+        {
+            "$addFields": {
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                }
+            }
+        },
+        {"$match": {"_rapporteur": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$_rapporteur"}},
+        {"$project": {"_id": 0, "label": "$_id"}},
+    ]
+    names = [row["label"] for row in collection.aggregate(pipeline)]
+    return sorted(names, key=str.casefold)
+
+
+def _aggregate_author_suggestions(collection: Collection, limit: int = 200) -> List[str]:
+    pipeline: List[Dict[str, Any]] = [
+        {"$unwind": f"${DOCTRINE_PATH}"},
+        {"$match": {f"{DOCTRINE_PATH}.author": {"$nin": [None, ""]}}},
+        {"$group": {"_id": f"${DOCTRINE_PATH}.author"}},
+        {"$project": {"_id": 0, "label": "$_id"}},
+        {"$sort": {"label": 1}},
+    ]
+    if limit:
+        pipeline.append({"$limit": limit})
+    return [row["label"] for row in collection.aggregate(pipeline)]
 
 
 def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> List[Dict[str, Any]]:
@@ -972,6 +1393,135 @@ def _aggregate_minister_detail(
         "top_norms": top_norms,
     }
 
+
+def _build_query_detail(case_query_doc: Dict[str, Any]) -> Dict[str, Any]:
+    url_params = _parse_query_url(str(case_query_doc.get("queryUrl") or ""))
+    query_string = case_query_doc.get("queryString") or url_params.get("query_string") or "—"
+    page_size = case_query_doc.get("pageSize") or url_params.get("page_size") or "—"
+    full_text = case_query_doc.get("inteiroTeor")
+    full_text = "true" if full_text is True else "false" if full_text is False else (url_params.get("full_text") or "—")
+    process_class_sigla = url_params.get("process_class_sigla") or []
+    if not process_class_sigla:
+        process_class_sigla = ["—"]
+
+    return {
+        "termo": query_string,
+        "classe": process_class_sigla,
+        "data_inicial": "—",
+        "data_final": "—",
+        "resultados_por_pagina": page_size,
+        "pagina": url_params.get("page") or "—",
+        "ordenacao": url_params.get("sort") or "—",
+        "ordem": url_params.get("sort_by") or "—",
+        "inteiro_teor": full_text,
+        "url": case_query_doc.get("queryUrl") or "—",
+    }
+
+
+def _compute_step_summary(
+    case_data_col: Collection,
+    base_match: Dict[str, Any],
+    *,
+    status_field: str,
+    success_values: List[str],
+    error_values: List[str],
+    start_field: str,
+    end_field: str,
+) -> Dict[str, Any]:
+    pipeline = [
+        {"$match": base_match},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "success": {
+                    "$sum": {"$cond": [{"$in": [f"${status_field}", success_values]}, 1, 0]}
+                },
+                "failed": {
+                    "$sum": {"$cond": [{"$in": [f"${status_field}", error_values]}, 1, 0]}
+                },
+                "startedAt": {"$min": f"${start_field}"},
+                "finishedAt": {"$max": f"${end_field}"},
+            }
+        },
+    ]
+    result = list(case_data_col.aggregate(pipeline))
+    if not result:
+        return {"status": "scheduled", "total": 0, "started_at": None, "finished_at": None}
+
+    row = result[0]
+    total = int(row.get("total") or 0)
+    success = int(row.get("success") or 0)
+    failed = int(row.get("failed") or 0)
+
+    if total == 0:
+        status = "scheduled"
+    elif failed > 0:
+        status = "failed"
+    elif success >= total:
+        status = "completed"
+    else:
+        status = "running"
+
+    return {
+        "status": status,
+        "total": total,
+        "started_at": row.get("startedAt"),
+        "finished_at": row.get("finishedAt"),
+    }
+
+
+def _compute_processing_step_summary(
+    case_data_col: Collection,
+    base_match: Dict[str, Any],
+    *,
+    success_field: str,
+    error_field: str,
+    start_field: str,
+    end_field: str,
+) -> Dict[str, Any]:
+    pipeline = [
+        {"$match": base_match},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "success": {
+                    "$sum": {"$cond": [{"$ne": [f"${success_field}", None]}, 1, 0]}
+                },
+                "failed": {
+                    "$sum": {"$cond": [{"$ne": [f"${error_field}", None]}, 1, 0]}
+                },
+                "startedAt": {"$min": f"${start_field}"},
+                "finishedAt": {"$max": f"${end_field}"},
+            }
+        },
+    ]
+    result = list(case_data_col.aggregate(pipeline))
+    if not result:
+        return {"status": "scheduled", "total": 0, "started_at": None, "finished_at": None}
+
+    row = result[0]
+    total = int(row.get("total") or 0)
+    success = int(row.get("success") or 0)
+    failed = int(row.get("failed") or 0)
+
+    if total == 0:
+        status = "scheduled"
+    elif failed > 0:
+        status = "failed"
+    elif success >= total:
+        status = "completed"
+    else:
+        status = "running"
+
+    return {
+        "status": status,
+        "total": total,
+        "started_at": row.get("startedAt"),
+        "finished_at": row.get("finishedAt"),
+    }
+
 app = Flask(__name__)
 
 
@@ -984,6 +1534,8 @@ def index() -> Any:
 def doutrina() -> Any:
     filters = _get_filters(request.args)
     collection = _get_collection()
+    author_limit = _limit_value(request.args.get("author_limit"), default=10)
+    title_limit = _limit_value(request.args.get("title_limit"), default=10)
 
     base_match = _build_match(filters)
     citation_types_all = [
@@ -1030,6 +1582,8 @@ def doutrina() -> Any:
             case_trend_label = f"{sign}{change:.1f}% em {year_label}"
 
     filter_params = {k: v for k, v in filters.items() if v}
+    next_author_limit = author_limit + 50
+    next_title_limit = title_limit + 50
 
     return render_template(
         "doutrina.html",
@@ -1037,8 +1591,14 @@ def doutrina() -> Any:
         filters=filters,
         filter_params=filter_params,
         summary_total=summary_total,
-        authors=authors,
-        titles=titles,
+        authors=authors[:author_limit],
+        titles=titles[:title_limit],
+        authors_total=len(authors),
+        titles_total=len(titles),
+        author_limit=author_limit,
+        title_limit=title_limit,
+        next_author_limit=next_author_limit,
+        next_title_limit=next_title_limit,
         rapporteurs=rapporteurs,
         top_doctrine_titles=top_doctrine_titles,
         top_cases_by_doctrine=top_cases_by_doctrine,
@@ -1080,11 +1640,20 @@ def doutrina_detail() -> Any:
         kind = "rapporteur"
         overrides["rapporteur"] = (value, True)
 
-    match = _build_match(filters, overrides=overrides)
     collection = _get_collection()
     limit = _limit_value(request.args.get("limit"), default=10)
+
+    match = _build_match(filters, overrides=overrides)
     total_cases = collection.count_documents(match)
     cases = _fetch_cases(collection, match, limit=limit)
+
+    author_insights = None
+    citations = None
+    author_show_more = False
+    if kind == "author":
+        author_insights = _aggregate_author_insights(collection, value, match)
+        citations = _fetch_author_citations(collection, value, match, limit=limit)
+        author_show_more = (author_insights.get("total_citations", 0) > limit) if author_insights else False
 
     filter_params = {k: v for k, v in filters.items() if v}
     next_limit = limit + 50
@@ -1097,6 +1666,9 @@ def doutrina_detail() -> Any:
         detail_value=value,
         total=total_cases,
         cases=cases,
+        author_insights=author_insights,
+        citations=citations,
+        author_show_more=author_show_more,
         filter_params=filter_params,
         limit=limit,
         next_limit=next_limit,
@@ -1220,6 +1792,289 @@ def ministro_detail() -> Any:
         decision_distribution=details["decision_distribution"],
         top_doctrine=details["top_doctrine"],
         top_norms=details["top_norms"],
+    )
+
+
+@app.route("/scraping")
+def scraping() -> Any:
+    defaults = _load_query_defaults()
+    status_meta = _status_meta()
+
+    jobs_col = _get_scrape_jobs_collection()
+    runs_col = _get_case_query_collection()
+
+    scheduled_jobs = list(jobs_col.find({}).sort("scheduledFor", 1))
+    recent_runs = list(runs_col.find({}).sort("extractionTimestamp", -1).limit(30))
+
+    jobs_view = []
+    for job in scheduled_jobs:
+        status = str(job.get("status") or "scheduled")
+        meta = status_meta.get(status, status_meta["unknown"])
+        query = job.get("query") if isinstance(job.get("query"), dict) else {}
+        classes = query.get("processClassSigla") or []
+        jobs_view.append(
+            {
+                "id": str(job.get("_id")),
+                "status": status,
+                "status_label": meta["label"],
+                "status_class": meta["class"],
+                "scheduled_for": _format_datetime(job.get("scheduledFor")),
+                "created_at": _format_datetime(job.get("createdAt")),
+                "query_string": query.get("queryString") or "—",
+                "page_size": query.get("pageSize") or "—",
+                "classes": classes,
+                "result_count": job.get("resultCount"),
+            }
+        )
+
+    runs_view = []
+    for run in recent_runs:
+        status = str(run.get("status") or "unknown")
+        meta = status_meta.get(status, status_meta["unknown"])
+        url_params = _parse_query_url(str(run.get("queryUrl") or ""))
+        classes = url_params.get("process_class_sigla") or []
+        runs_view.append(
+            {
+                "id": str(run.get("_id")),
+                "status": status,
+                "status_label": meta["label"],
+                "status_class": meta["class"],
+                "started_at": _format_datetime(run.get("extractionTimestamp")),
+                "finished_at": _format_datetime(run.get("processedDate")),
+                "query_string": run.get("queryString") or url_params.get("query_string") or "—",
+                "page_size": run.get("pageSize") or url_params.get("page_size") or "—",
+                "classes": classes,
+                "result_count": run.get("extractedCount") or 0,
+            }
+        )
+
+    alerts = []
+    for run in recent_runs:
+        if str(run.get("status")) == "error":
+            alerts.append(
+                {
+                    "title": "Falha na execucao do scraping",
+                    "detail": f"Query '{run.get('queryString') or 'Sem termo'}' falhou.",
+                    "time": _format_datetime(run.get("processedDate") or run.get("extractionTimestamp")),
+                }
+            )
+    for job in scheduled_jobs:
+        if str(job.get("status")) == "failed":
+            alerts.append(
+                {
+                    "title": "Execucao agendada falhou",
+                    "detail": job.get("error") or "Falha nao especificada.",
+                    "time": _format_datetime(job.get("updatedAt") or job.get("scheduledFor")),
+                }
+            )
+
+    return render_template(
+        "scraping.html",
+        title="CITO | Scraping",
+        brand_sub="Scraping",
+        hero_copy="Gerencie o agendamento e acompanhe o historico das execucoes do scraper do STF.",
+        defaults=defaults,
+        scheduled_jobs=jobs_view,
+        recent_runs=runs_view,
+        alerts=alerts,
+    )
+
+
+@app.route("/scraping/schedule", methods=["POST"])
+def scraping_schedule() -> Any:
+    defaults = _load_query_defaults()
+    scheduled_for = _parse_datetime_local(request.form.get("scheduled_for") or "")
+    if scheduled_for is None:
+        scheduled_for = datetime.now()
+
+    query = {
+        "queryString": (request.form.get("query_string") or defaults.get("query_string") or "").strip(),
+        "fullText": _as_bool(request.form.get("full_text"), defaults.get("full_text", True)),
+        "page": int(request.form.get("page") or defaults.get("page") or 1),
+        "pageSize": int(request.form.get("page_size") or defaults.get("page_size") or 50),
+        "sort": (request.form.get("sort") or defaults.get("sort") or "_score").strip(),
+        "sortBy": (request.form.get("sort_by") or defaults.get("sort_by") or "desc").strip(),
+        "requestDelaySeconds": float(request.form.get("request_delay_seconds") or defaults.get("request_delay_seconds") or 0),
+        "sslVerify": _as_bool(request.form.get("ssl_verify"), defaults.get("ssl_verify", True)),
+        "headedMode": _as_bool(request.form.get("headed_mode"), defaults.get("headed_mode", False)),
+        "base": (request.form.get("base") or defaults.get("base") or "acordaos").strip(),
+        "synonym": _as_bool(request.form.get("synonym"), defaults.get("synonym", True)),
+        "plural": _as_bool(request.form.get("plural"), defaults.get("plural", True)),
+        "stems": _as_bool(request.form.get("stems"), defaults.get("stems", False)),
+        "exactSearch": _as_bool(request.form.get("exact_search"), defaults.get("exact_search", True)),
+        "processClassSigla": [
+            s.strip().upper()
+            for s in (request.form.get("process_class_sigla") or "").split(",")
+            if s.strip()
+        ],
+        "dateStart": (request.form.get("date_start") or "").strip() or None,
+        "dateEnd": (request.form.get("date_end") or "").strip() or None,
+    }
+
+    now = datetime.now(timezone.utc)
+    doc = {
+        "status": "scheduled",
+        "scheduledFor": scheduled_for,
+        "createdAt": now,
+        "updatedAt": now,
+        "query": query,
+        "resultCount": None,
+        "error": None,
+        "source": "ui",
+    }
+    _get_scrape_jobs_collection().insert_one(doc)
+    return redirect(url_for("scraping"))
+
+
+@app.route("/scraping/cancel/<job_id>", methods=["POST"])
+def scraping_cancel(job_id: str) -> Any:
+    try:
+        obj_id = ObjectId(job_id)
+    except InvalidId:
+        return redirect(url_for("scraping"))
+
+    now = datetime.now(timezone.utc)
+    _get_scrape_jobs_collection().update_one(
+        {"_id": obj_id, "status": "scheduled"},
+        {"$set": {"status": "canceled", "updatedAt": now}},
+    )
+    return redirect(url_for("scraping"))
+
+
+@app.route("/scraping/<run_id>")
+def scraping_detail(run_id: str) -> Any:
+    try:
+        obj_id = ObjectId(run_id)
+    except InvalidId:
+        return redirect(url_for("scraping"))
+
+    case_query_col = _get_case_query_collection()
+    case_query = case_query_col.find_one({"_id": obj_id})
+    if not case_query:
+        return redirect(url_for("scraping"))
+
+    case_data_col = _get_collection()
+    case_query_id_str = str(case_query.get("_id"))
+    base_match = {"identity.caseQueryId": case_query_id_str}
+    total_cases = case_data_col.count_documents(base_match)
+
+    step_download = _compute_step_summary(
+        case_data_col,
+        base_match,
+        status_field="processing.caseScrapeStatus",
+        success_values=["success"],
+        error_values=["error", "challenge"],
+        start_field="processing.caseScrapeAt",
+        end_field="processing.caseScrapeAt",
+    )
+    step_process = _compute_processing_step_summary(
+        case_data_col,
+        base_match,
+        success_field="processing.caseSectionsExtractedAt",
+        error_field="processing.caseSectionsError",
+        start_field="processing.caseSectionsExtractingAt",
+        end_field="processing.caseSectionsExtractedAt",
+    )
+
+    steps = [
+        {
+            "name": "step01-download-case-data.py",
+            "status": step_download["status"],
+            "total": step_download["total"],
+            "started_at": step_download["started_at"],
+            "finished_at": step_download["finished_at"],
+        },
+        {
+            "name": "step02-process-case-data.py",
+            "status": step_process["status"],
+            "total": step_process["total"],
+            "started_at": step_process["started_at"],
+            "finished_at": step_process["finished_at"],
+        },
+        {
+            "name": "step03-generate-reports.py",
+            "status": "unknown",
+            "total": 0,
+            "started_at": None,
+            "finished_at": None,
+        },
+    ]
+
+    status_meta = _status_meta()
+    for step in steps:
+        meta = status_meta.get(step["status"], status_meta["unknown"])
+        step["status_label"] = meta["label"]
+        step["status_class"] = meta["class"]
+        step["started_at_fmt"] = _format_datetime(step["started_at"])
+        step["finished_at_fmt"] = _format_datetime(step["finished_at"])
+
+    detail = _build_query_detail(case_query)
+    run_status = str(case_query.get("status") or "unknown")
+    run_meta = status_meta.get(run_status, status_meta["unknown"])
+
+    return render_template(
+        "scraping_detail.html",
+        title="CITO | Scraping | Detalhe",
+        brand_sub="Scraping",
+        hero_copy="Detalhes da execucao do scraping e etapas subsequentes da pipeline.",
+        query_detail=detail,
+        run=case_query,
+        run_status=run_status,
+        run_status_label=run_meta["label"],
+        run_status_class=run_meta["class"],
+        total_cases=total_cases,
+        steps=steps,
+    )
+
+
+@app.route("/processos")
+def processos() -> Any:
+    filters = _get_process_filters(request.args)
+    collection = _get_collection()
+
+    match = _build_process_match(filters)
+    limit = _limit_value(request.args.get("limit"), default=25)
+    total = collection.count_documents(match)
+    rows = _fetch_processes(collection, match, limit=limit)
+
+    class_options = _aggregate_case_classes(collection, {})
+    rapporteur_options = _aggregate_rapporteur_options(collection)
+    author_suggestions = _aggregate_author_suggestions(collection, limit=250)
+
+    filter_params = {k: v for k, v in filters.items() if v}
+    next_limit = limit + 50
+
+    return render_template(
+        "processos.html",
+        title="CITO | Processos",
+        brand_sub="Processos",
+        hero_copy="Explore processos extraidos do STF com filtros avancados e acesso rapido aos detalhes.",
+        filters=filters,
+        filter_params=filter_params,
+        class_options=class_options,
+        rapporteur_options=rapporteur_options,
+        author_suggestions=author_suggestions,
+        processes=rows,
+        total=total,
+        limit=limit,
+        next_limit=next_limit,
+        show_more=total > limit,
+    )
+
+
+@app.route("/processos/<process_id>")
+def processos_detail(process_id: str) -> Any:
+    collection = _get_collection()
+    detail = _fetch_process_detail(collection, process_id)
+    if not detail:
+        return redirect(url_for("processos"))
+
+    return render_template(
+        "processos_detail.html",
+        title="CITO | Processos | Detalhe",
+        brand_sub="Processos",
+        hero_copy="Detalhamento completo do processo, doutrinas, palavras-chave e legislacao.",
+        detail=detail,
     )
 
 

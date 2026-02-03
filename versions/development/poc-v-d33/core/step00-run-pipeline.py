@@ -18,9 +18,10 @@ Dependencies: pymongo
 from __future__ import annotations
 
 import argparse
-import time
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -32,6 +33,43 @@ CONFIG_DIR = BASE_DIR.parent / "config"
 MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 # Delay entre execuções de stfDecisionId (em segundos).
 DELAY_BETWEEN_ITEMS_SECONDS = 10.0
+
+# Logs
+LOG_DIR = BASE_DIR / "logs"
+LOG_FILE_PATH: Path | None = None
+LOG_TO_FILE = True
+
+
+def _ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _init_log_file() -> None:
+    global LOG_FILE_PATH
+    if LOG_FILE_PATH is not None:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    LOG_FILE_PATH = LOG_DIR / f"pipeline-{stamp}.log"
+
+
+def _write_log_file(text: str) -> None:
+    if not LOG_TO_FILE:
+        return
+    if LOG_FILE_PATH is None:
+        _init_log_file()
+    try:
+        with LOG_FILE_PATH.open("a", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        # Evita quebrar o pipeline caso falhe escrita em disco
+        pass
+
+
+def log(msg: str) -> None:
+    line = f"[{_ts()}] {msg}"
+    print(line)
+    _write_log_file(line + "\n")
 
 
 def _get_case_data_collection():
@@ -52,6 +90,7 @@ def _run_step(script: str, input_text: str) -> int:
 
 
 def main() -> int:
+    _init_log_file()
     parser = argparse.ArgumentParser(description="Executa o pipeline por stfDecisionId.")
     parser.add_argument(
         "--case-url",
@@ -67,11 +106,11 @@ def main() -> int:
     case_url = (args.case_url or "").strip()
 
     # 1) Conectar no MongoDB e localizar documentos sem processing.caseScrapeStatus
-    print("[INFO] Conectando ao MongoDB...")
+    log("[INFO] Conectando ao MongoDB...")
     try:
         col = _get_case_data_collection()
     except Exception as e:
-        print(f"[ERRO] Falha ao conectar no MongoDB: {e}")
+        log(f"[ERRO] Falha ao conectar no MongoDB: {e}")
         return 1
 
     # 2) Query: documentos com processing.caseScrapeStatus ausente/nulo/vazio
@@ -84,23 +123,23 @@ def main() -> int:
     }
     projection = {"identity.stfDecisionId": 1}
 
-    print("[INFO] Buscando documentos sem processing.caseScrapeStatus...")
+    log("[INFO] Buscando documentos sem processing.caseScrapeStatus...")
     docs = list(col.find(query, projection=projection))
     if not docs:
-        print("[INFO] Nenhum documento encontrado para processar.")
+        log("[INFO] Nenhum documento encontrado para processar.")
         return 0
 
     # 3) Para cada documento encontrado, executar os steps em sequência
     total = len(docs)
-    print(f"[INFO] Total encontrado: {total}")
+    log(f"[INFO] Total encontrado: {total}")
 
     for idx, doc in enumerate(docs, start=1):
         stf_decision_id = ((doc.get("identity") or {}).get("stfDecisionId") or "").strip()
         if not stf_decision_id:
-            print(f"[WARN] Registro sem identity.stfDecisionId (pos {idx}/{total}). Ignorando.")
+            log(f"[WARN] Registro sem identity.stfDecisionId (pos {idx}/{total}). Ignorando.")
             continue
 
-        print(f"\n[INFO] ({idx}/{total}) Processando stfDecisionId={stf_decision_id}")
+        log(f"[INFO] ({idx}/{total}) Processando stfDecisionId={stf_decision_id}")
 
         steps = [
             ("step02-get-case-html.py", f"{stf_decision_id}\n{case_url}\n" if case_url else f"{stf_decision_id}\n"),
@@ -113,20 +152,20 @@ def main() -> int:
         ]
 
         for script, input_text in steps:
-            print(f"[INFO] Executando: {script}")
+            log(f"[INFO] Executando: {script}")
             rc = _run_step(script, input_text)
             if rc != 0:
-                print(f"[ERRO] {script} retornou código {rc}")
+                log(f"[ERRO] {script} retornou código {rc}")
             else:
-                print(f"[OK] {script}")
+                log(f"[OK] {script}")
         # Mesmo com falhas em steps individuais, seguimos com o próximo step e depois com o próximo registro.
 
         # Aguarda antes de iniciar o próximo item (rate limit simples).
         if idx < total and DELAY_BETWEEN_ITEMS_SECONDS > 0:
-            print(f"[INFO] Aguardando {DELAY_BETWEEN_ITEMS_SECONDS}s antes do próximo item...")
+            log(f"[INFO] Aguardando {DELAY_BETWEEN_ITEMS_SECONDS}s antes do próximo item...")
             time.sleep(DELAY_BETWEEN_ITEMS_SECONDS)
 
-    print("[INFO] Pipeline finalizado.")
+    log("[INFO] Pipeline finalizado.")
     return 0
 
 

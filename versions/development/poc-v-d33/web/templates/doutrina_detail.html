@@ -13,50 +13,126 @@
     </div>
   </section>
 
-  <section class="panel">
-    {% if cases %}
-      <table>
-        <thead>
-          <tr>
-            <th>Titulo do processo</th>
-            <th>Data julgamento</th>
-            <th>Orgao julgador</th>
-            <th>Decisao final</th>
-            <th>Voto</th>
-            <th>Link</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in cases %}
-            <tr>
-              <td>{{ item.case_title }}</td>
-              <td>{{ item.judgment_date }}</td>
-              <td>{{ item.judging_body }}</td>
-              <td>{{ item.decision_final }}</td>
-              <td>{{ item.vote_type }}</td>
-              <td>
-                {% if item.case_url %}
-                  <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>
-                {% else %}
-                  -
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      {% if show_more %}
-        <div class="actions">
-          <a
-            class="secondary"
-            href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
-          >
-            Ver mais
-          </a>
+  {% if author_insights %}
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Insights do Autor</h2>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <span class="stat-label">Total de citacoes</span>
+          <span class="stat-value">{{ author_insights.total_citations }}</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-label">Total de citacoes unicas</span>
+          <span class="stat-value">{{ author_insights.unique_citations }}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Obra mais citada</span>
+          <span class="stat-value">{{ author_insights.top_work }}</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Relator que mais citou</span>
+          <span class="stat-value">{{ author_insights.top_rapporteur }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <h2>Detalhes das citacoes</h2>
+      </div>
+      {% if citations %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Titulo do processo</th>
+              <th>Relator</th>
+              <th>Nome da obra citada</th>
+              <th>Classe</th>
+              <th>Data do Julgamento</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in citations %}
+              <tr>
+                <td>{{ item.case_title }}</td>
+                <td>{{ item.rapporteur or '-' }}</td>
+                <td>{{ item.work or '-' }}</td>
+                <td>{{ item.case_class or '-' }}</td>
+                <td>{{ item.judgment_date }}</td>
+                <td>
+                  {% if item.case_url %}
+                    <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if author_show_more %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="empty">Nenhuma citacao encontrada para este autor.</p>
       {% endif %}
-    {% else %}
-      <p class="empty">Nenhum processo encontrado para este filtro.</p>
-    {% endif %}
-  </section>
+    </section>
+  {% else %}
+    <section class="panel">
+      {% if cases %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Titulo do processo</th>
+              <th>Data julgamento</th>
+              <th>Orgao julgador</th>
+              <th>Decisao final</th>
+              <th>Voto</th>
+              <th>Link</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in cases %}
+              <tr>
+                <td>{{ item.case_title }}</td>
+                <td>{{ item.judgment_date }}</td>
+                <td>{{ item.judging_body }}</td>
+                <td>{{ item.decision_final }}</td>
+                <td>{{ item.vote_type }}</td>
+                <td>
+                  {% if item.case_url %}
+                    <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% if show_more %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="empty">Nenhum processo encontrado para este filtro.</p>
+      {% endif %}
+    </section>
+  {% endif %}
 {% endblock %}

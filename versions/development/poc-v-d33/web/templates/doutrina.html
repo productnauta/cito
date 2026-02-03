@@ -7,7 +7,7 @@
     </div>
     <p class="panel-copy">
       Use os filtros para segmentar as citacoes doutrinarias e explorar autores,
-      titulos de publicacao e relatores.
+      obras e relatores.
     </p>
     <form class="filters" method="get">
       <label class="field">
@@ -155,7 +155,7 @@
     <article class="panel">
       <div class="panel-header">
         <h2>Autores</h2>
-        <span class="chip">{{ authors|length }} encontrados</span>
+        <span class="chip">{{ authors_total }} encontrados</span>
       </div>
       {% if authors %}
         <table>
@@ -178,6 +178,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if authors_total > author_limit %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('doutrina', author_limit=next_author_limit, title_limit=title_limit, **filter_params) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem resultados para os filtros atuais.</p>
       {% endif %}
@@ -185,8 +195,8 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>Titulos de publicacao</h2>
-        <span class="chip">{{ titles|length }} encontrados</span>
+        <h2>Obras</h2>
+        <span class="chip">{{ titles_total }} encontradas</span>
       </div>
       {% if titles %}
         <table>
@@ -209,6 +219,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if titles_total > title_limit %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('doutrina', title_limit=next_title_limit, author_limit=author_limit, **filter_params) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem resultados para os filtros atuais.</p>
       {% endif %}

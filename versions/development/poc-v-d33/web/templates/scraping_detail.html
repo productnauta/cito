@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Detalhes da Execucao</h2>
+        <p class="panel-copy">Resumo da query executada e do impacto no pipeline.</p>
+      </div>
+      <a class="secondary" href="{{ url_for('scraping') }}">Voltar</a>
+    </div>
+    <div class="summary-cards">
+      <div class="card">
+        <h3>Status</h3>
+        <p class="card-value"><span class="{{ run_status_class }}">{{ run_status_label }}</span></p>
+        <span class="card-meta">Execucao {{ run.get('status') or '—' }}</span>
+      </div>
+      <div class="card">
+        <h3>Processos Inseridos</h3>
+        <p class="card-value">{{ total_cases }}</p>
+        <span class="card-meta">Total de registros em <code>case_data</code></span>
+      </div>
+      <div class="card">
+        <h3>Resultados Extraidos</h3>
+        <p class="card-value">{{ run.get('extractedCount') or 0 }}</p>
+        <span class="card-meta">Registrado em <code>case_query</code></span>
+      </div>
+      <div class="card">
+        <h3>Timestamp</h3>
+        <p class="card-value">{{ run.get('extractionTimestamp') }}</p>
+        <span class="card-meta">Inicio da coleta</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Parametros da Query</h2>
+        <p class="panel-copy">Informacoes principais extraidas da configuracao usada no scraping.</p>
+      </div>
+      <span class="chip">Query</span>
+    </div>
+    <div class="detail-grid">
+      <div>
+        <h4>Termo</h4>
+        <p>{{ query_detail.termo }}</p>
+      </div>
+      <div>
+        <h4>Classe processual</h4>
+        <p>
+          {% for cls in query_detail.classe %}
+            <span class="chip small">{{ cls }}</span>
+          {% endfor %}
+        </p>
+      </div>
+      <div>
+        <h4>Data inicial</h4>
+        <p>{{ query_detail.data_inicial }}</p>
+      </div>
+      <div>
+        <h4>Data final</h4>
+        <p>{{ query_detail.data_final }}</p>
+      </div>
+      <div>
+        <h4>Resultados por pagina</h4>
+        <p>{{ query_detail.resultados_por_pagina }}</p>
+      </div>
+      <div>
+        <h4>Pagina</h4>
+        <p>{{ query_detail.pagina }}</p>
+      </div>
+      <div>
+        <h4>Ordenacao</h4>
+        <p>{{ query_detail.ordenacao }}</p>
+      </div>
+      <div>
+        <h4>Direcao</h4>
+        <p>{{ query_detail.ordem }}</p>
+      </div>
+      <div>
+        <h4>Inteiro teor</h4>
+        <p>{{ query_detail.inteiro_teor }}</p>
+      </div>
+      <div class="detail-span">
+        <h4>URL da consulta</h4>
+        <p class="mono">{{ query_detail.url }}</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h2>Etapas Subsequentes da Pipeline</h2>
+        <p class="panel-copy">Status consolidado dos passos posteriores a coleta.</p>
+      </div>
+      <span class="chip">Pipeline</span>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Etapa</th>
+          <th>Status</th>
+          <th>Inicio</th>
+          <th>Termino</th>
+          <th>Total itens</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for step in steps %}
+          <tr>
+            <td>{{ step.name }}</td>
+            <td><span class="{{ step.status_class }}">{{ step.status_label }}</span></td>
+            <td>{{ step.started_at_fmt or '—' }}</td>
+            <td>{{ step.finished_at_fmt or '—' }}</td>
+            <td>{{ step.total }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
