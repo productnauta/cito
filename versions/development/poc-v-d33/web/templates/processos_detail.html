@@ -128,6 +128,33 @@
 
   <section class="panel">
     <div class="panel-header">
+      <h2>Partes do Processo</h2>
+      <span class="chip">{{ detail.parties|length }} partes</span>
+    </div>
+    {% if detail.parties %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Tipo da Parte</th>
+            <th>Nome da Parte</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for party in detail.parties %}
+            <tr>
+              <td>{{ party.type or '-' }}</td>
+              <td>{{ party.name or '-' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhuma parte cadastrada.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
       <h2>Links para documentos originais</h2>
     </div>
     {% if detail.links %}

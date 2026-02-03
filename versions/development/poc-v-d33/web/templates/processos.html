@@ -108,18 +108,24 @@
             <th>Relator</th>
             <th>Data de julgamento</th>
             <th>Doutrinas</th>
-            <th>Detalhes</th>
+            <th>Palavras-chave</th>
+            <th>Legislacao</th>
+            <th>Partes</th>
           </tr>
         </thead>
         <tbody>
           {% for row in processes %}
             <tr>
-              <td>{{ row.case_title }}</td>
+              <td>
+                <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
+              </td>
               <td>{{ row.case_class }}</td>
               <td>{{ row.rapporteur }}</td>
               <td>{{ row.judgment_date }}</td>
               <td>{{ row.doctrine_count }}</td>
-              <td><a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">Abrir</a></td>
+              <td>{{ row.keywords_count }}</td>
+              <td>{{ row.legislation_count }}</td>
+              <td>{{ row.parties_count }}</td>
             </tr>
           {% endfor %}
         </tbody>

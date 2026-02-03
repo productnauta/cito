@@ -846,6 +846,9 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
         "caseIdentification.rapporteur": 1,
         "dates.judgmentDate": 1,
         DOCTRINE_PATH: 1,
+        KEYWORDS_PATH: 1,
+        LEGISLATION_PATH: 1,
+        "caseData.caseParties": 1,
     }
     cursor = collection.find(match, projection=projection).sort("dates.judgmentDate", -1)
     if limit:
@@ -859,7 +862,11 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
         case_class = identity.get("caseClass") or case_ident.get("caseClass") or "-"
         rapporteur = identity.get("rapporteur") or case_ident.get("rapporteur") or "-"
         judgment_date = _format_date((doc.get("dates") or {}).get("judgmentDate"))
-        doctrine_count = len((doc.get("caseData") or {}).get("doctrineReferences") or [])
+        case_data = doc.get("caseData") or {}
+        doctrine_count = len(case_data.get("doctrineReferences") or [])
+        keywords_count = len(case_data.get("caseKeywords") or [])
+        legislation_count = len(case_data.get("legislationReferences") or [])
+        parties_count = len(case_data.get("caseParties") or [])
         stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
 
         rows.append(
@@ -869,6 +876,9 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
                 "rapporteur": rapporteur,
                 "judgment_date": judgment_date,
                 "doctrine_count": doctrine_count,
+                "keywords_count": keywords_count,
+                "legislation_count": legislation_count,
+                "parties_count": parties_count,
                 "stf_id": stf_id,
             }
         )
@@ -894,6 +904,31 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
 
     doctrine_refs = case_data.get("doctrineReferences") or []
     legislation_refs_raw = case_data.get("legislationReferences") or []
+    parties_raw = case_data.get("caseParties") or []
+    parties = []
+    for party in parties_raw:
+        if isinstance(party, dict):
+            party_type = (
+                party.get("partieType")
+                or party.get("partyType")
+                or party.get("type")
+                or party.get("role")
+                or "-"
+            )
+            party_name = (
+                party.get("partieName")
+                or party.get("partyName")
+                or party.get("name")
+                or "-"
+            )
+        else:
+            party_type = "-"
+            party_name = str(party) if party is not None else "-"
+        if not party_type:
+            party_type = "-"
+        if not party_name:
+            party_name = "-"
+        parties.append({"type": party_type, "name": party_name})
     legislation_refs = []
     legislation_ids = []
     for norm in legislation_refs_raw:
@@ -936,6 +971,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         "keywords": keywords,
         "legislation_refs": legislation_refs,
         "legislation_ids": legislation_ids,
+        "parties": parties,
         "links": links,
     }
 
