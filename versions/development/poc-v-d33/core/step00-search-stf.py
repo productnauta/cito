@@ -16,6 +16,7 @@ Dependencies: pymongo, playwright, pyyaml
 
 from __future__ import annotations
 
+import argparse
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -309,8 +310,13 @@ def main() -> int:
 
     # Carregar configuracoes
     log("Carregando configuracoes YAML")
+    parser = argparse.ArgumentParser(description="Executa scraping STF com query.yaml.")
+    parser.add_argument("--query-config", help="Caminho para o arquivo query.yaml")
+    args = parser.parse_args()
+
+    query_path = Path(args.query_config) if args.query_config else QUERY_CONFIG_PATH
     try:
-        query_cfg = build_query_cfg(load_yaml(QUERY_CONFIG_PATH))
+        query_cfg = build_query_cfg(load_yaml(query_path))
         mongo_cfg = build_mongo_cfg(load_yaml(MONGO_CONFIG_PATH))
     except Exception as e:
         log(f"Erro ao carregar configuracoes: {e}")

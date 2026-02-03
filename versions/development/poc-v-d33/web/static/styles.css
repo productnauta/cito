@@ -180,6 +180,21 @@ button:hover {
   opacity: 0.9;
 }
 
+.danger {
+  background: #b9382a;
+  color: #fff;
+}
+
+.pipeline-actions {
+  flex-wrap: wrap;
+}
+
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .secondary {
   border: 1px solid var(--line);
   padding: 8px 14px;

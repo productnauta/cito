@@ -17,6 +17,7 @@ Dependencies: pymongo beautifulsoup4
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -28,6 +29,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs
 
 from bs4 import BeautifulSoup
+from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
@@ -534,7 +537,87 @@ def upsert_case_data(case_col: Collection, *, doc: Dict[str, Any], stf_decision_
 # 6) MAIN (processa todos os case_query com status=new)
 # =============================================================================
 
+def _process_case_query_doc(
+    case_query_col: Collection,
+    case_col: Collection,
+    mongo_cfg: MongoCfg,
+    case_query_doc: Dict[str, Any],
+) -> int:
+    doc_id = case_query_doc["_id"]
+    doc_id_str = str(doc_id)
+    log("INFO", f"Documento claimed | case_query._id={doc_id_str} | status='{mongo_cfg.status_processing}'")
+
+    process_all = True
+    try:
+        step(4, 8, "Lendo HTML do case_query (campo htmlRaw)")
+        html_raw = (case_query_doc.get("htmlRaw") or "").strip()
+        if not html_raw:
+            raise ValueError("Documento case_query não possui HTML (htmlRaw vazio).")
+
+        log("INFO", f"HTML carregado | chars={len(html_raw)}")
+
+        step(5, 8, "Extraindo dados de query do case_query (injetar em case_data.query)")
+        query_sub = build_query_from_case_query(case_query_doc)
+        if query_sub:
+            log("INFO", f"Query detectada | {query_sub}")
+        else:
+            log("WARN", "Query não detectada no case_query (campo query não será incluído)")
+
+        step(6, 8, "Extraindo cards do HTML")
+        extracted_docs = extract_cards(html_raw, doc_id_str)
+
+        if query_sub:
+            for d in extracted_docs:
+                _set_if(d, "query", query_sub)
+
+        step(7, 8, "Persistindo decisões (UPSERT em case_data)")
+        inserted = 0
+        updated = 0
+        skipped = 0
+        for i, d in enumerate(extracted_docs, start=1):
+            identity = d.get("identity") if isinstance(d.get("identity"), dict) else {}
+            stf_id = _clean_str(identity.get("stfDecisionId"))
+            if not stf_id:
+                skipped += 1
+                log("WARN", f"Persistência: doc #{i} sem stfDecisionId (ignorado)")
+                continue
+
+            exists = case_col.find_one({"identity.stfDecisionId": stf_id}, projection={"_id": 1})
+            if not process_all and exists:
+                skipped += 1
+                log("INFO", f"Persistência: doc #{i} já existe (stfDecisionId={stf_id}) — ignorado (modo=new)")
+                continue
+
+            created, saved_doc_id = upsert_case_data(case_col, doc=d, stf_decision_id=stf_id)
+            if created:
+                inserted += 1
+                log("INFO", f"Persistência: doc #{i} inserido | stfDecisionId={stf_id} | _id={saved_doc_id}")
+            else:
+                updated += 1
+                log("INFO", f"Persistência: doc #{i} atualizado | stfDecisionId={stf_id} | _id={saved_doc_id}")
+
+        log("INFO", f"Persistência concluída | inseridos={inserted} | atualizados={updated} | ignorados={skipped}")
+
+        step(8, 8, "Atualizando status do case_query para 'extracted'")
+        mark_case_query_ok(case_query_col, doc_id, mongo_cfg, extracted_count=len(extracted_docs))
+
+        log("INFO", f"case_query._id={doc_id_str} | extractedCount={len(extracted_docs)} | status='{mongo_cfg.status_ok}'")
+        return 0
+
+    except Exception as e:
+        step(8, 8, "Falha detectada: marcando case_query como 'error'")
+        mark_case_query_error(case_query_col, doc_id, mongo_cfg, error_msg=str(e))
+
+        log("ERROR", f"Erro ao processar case_query._id={doc_id_str}: {e}")
+        log("ERROR", "Stacktrace completo:")
+        print(traceback.format_exc())
+        return 1
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Extrai cards de case_query para case_data.")
+    parser.add_argument("--case-query-id", dest="case_query_id", help="Processa apenas este _id do case_query.")
+    args = parser.parse_args()
+
     total_steps = 8
 
     step(1, total_steps, "Carregando configurações (mongo.yaml / query.json)")
@@ -551,6 +634,25 @@ def main() -> int:
     step(2, total_steps, "Conectando ao MongoDB e obtendo collections")
     case_query_col, case_col = get_collections(mongo_cfg)
 
+    if args.case_query_id:
+        try:
+            obj_id = ObjectId(args.case_query_id)
+        except InvalidId:
+            log("ERROR", "case_query_id inválido.")
+            return 1
+
+        case_query_doc = case_query_col.find_one({"_id": obj_id})
+        if not case_query_doc:
+            log("ERROR", "case_query não encontrado.")
+            return 1
+
+        case_query_col.update_one(
+            {"_id": obj_id},
+            {"$set": {"status": mongo_cfg.status_processing, "extractingAt": utc_now()}},
+        )
+        case_query_doc = case_query_col.find_one({"_id": obj_id}) or case_query_doc
+        return _process_case_query_doc(case_query_col, case_col, mongo_cfg, case_query_doc)
+
     processed_total = 0
     while True:
         step(3, total_steps, f"Claim do próximo case_query (status='{mongo_cfg.status_input}')")
@@ -559,76 +661,10 @@ def main() -> int:
             log("INFO", f"Nenhum documento com status='{mongo_cfg.status_input}' em '{mongo_cfg.case_query_collection}'.")
             break
 
-        doc_id = case_query_doc["_id"]
-        doc_id_str = str(doc_id)
-        log("INFO", f"Documento claimed | case_query._id={doc_id_str} | status='{mongo_cfg.status_processing}'")
-
-        # Processar todos os registros (atualiza/inserir sempre)
-        process_all = True
-
-        try:
-            step(4, total_steps, "Lendo HTML do case_query (campo htmlRaw)")
-            html_raw = (case_query_doc.get("htmlRaw") or "").strip()
-            if not html_raw:
-                raise ValueError("Documento case_query não possui HTML (htmlRaw vazio).")
-
-            log("INFO", f"HTML carregado | chars={len(html_raw)}")
-
-            step(5, total_steps, "Extraindo dados de query do case_query (injetar em case_data.query)")
-            query_sub = build_query_from_case_query(case_query_doc)
-            if query_sub:
-                log("INFO", f"Query detectada | {query_sub}")
-            else:
-                log("WARN", "Query não detectada no case_query (campo query não será incluído)")
-
-            step(6, total_steps, "Extraindo cards do HTML")
-            extracted_docs = extract_cards(html_raw, doc_id_str)
-
-            if query_sub:
-                for d in extracted_docs:
-                    _set_if(d, "query", query_sub)
-
-            step(7, total_steps, "Persistindo decisões (UPSERT em case_data)")
-            inserted = 0
-            updated = 0
-            skipped = 0
-            for i, d in enumerate(extracted_docs, start=1):
-                identity = d.get("identity") if isinstance(d.get("identity"), dict) else {}
-                stf_id = _clean_str(identity.get("stfDecisionId"))
-                if not stf_id:
-                    skipped += 1
-                    log("WARN", f"Persistência: doc #{i} sem stfDecisionId (ignorado)")
-                    continue
-
-                exists = case_col.find_one({"identity.stfDecisionId": stf_id}, projection={"_id": 1})
-                if not process_all and exists:
-                    skipped += 1
-                    log("INFO", f"Persistência: doc #{i} já existe (stfDecisionId={stf_id}) — ignorado (modo=new)")
-                    continue
-
-                created, saved_doc_id = upsert_case_data(case_col, doc=d, stf_decision_id=stf_id)
-                if created:
-                    inserted += 1
-                    log("INFO", f"Persistência: doc #{i} inserido | stfDecisionId={stf_id} | _id={saved_doc_id}")
-                else:
-                    updated += 1
-                    log("INFO", f"Persistência: doc #{i} atualizado | stfDecisionId={stf_id} | _id={saved_doc_id}")
-
-            log("INFO", f"Persistência concluída | inseridos={inserted} | atualizados={updated} | ignorados={skipped}")
-
-            step(8, total_steps, "Atualizando status do case_query para 'extracted'")
-            mark_case_query_ok(case_query_col, doc_id, mongo_cfg, extracted_count=len(extracted_docs))
-
-            log("INFO", f"case_query._id={doc_id_str} | extractedCount={len(extracted_docs)} | status='{mongo_cfg.status_ok}'")
+        rc = _process_case_query_doc(case_query_col, case_col, mongo_cfg, case_query_doc)
+        if rc == 0:
             processed_total += 1
-
-        except Exception as e:
-            step(8, total_steps, "Falha detectada: marcando case_query como 'error'")
-            mark_case_query_error(case_query_col, doc_id, mongo_cfg, error_msg=str(e))
-
-            log("ERROR", f"Erro ao processar case_query._id={doc_id_str}: {e}")
-            log("ERROR", "Stacktrace completo:")
-            print(traceback.format_exc())
+        else:
             return 1
 
     log("INFO", f"Execução concluída | case_query processados={processed_total}")

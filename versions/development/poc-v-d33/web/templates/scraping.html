@@ -76,7 +76,7 @@
       </div>
       <div class="field">
         <label for="scheduled_for">Agendar para</label>
-        <input id="scheduled_for" name="scheduled_for" type="datetime-local" required />
+        <input id="scheduled_for" name="scheduled_for" type="datetime-local" />
       </div>
 
       <div class="field toggle-group">
@@ -116,7 +116,8 @@
       </div>
 
       <div class="actions">
-        <button type="submit">Agendar execucao</button>
+        <button type="submit" name="execution_mode" value="schedule">Agendar execucao</button>
+        <button type="submit" class="secondary" name="execution_mode" value="now">Executar agora</button>
         <span class="helper">Um registro sera criado na fila de scraping.</span>
       </div>
     </form>
@@ -162,9 +163,14 @@
               <td>{{ job.result_count if job.result_count is not none else "—" }}</td>
               <td>
                 {% if job.status == 'scheduled' %}
-                  <form method="post" action="{{ url_for('scraping_cancel', job_id=job.id) }}">
-                    <button type="submit" class="secondary">Cancelar</button>
-                  </form>
+                  <div class="table-actions">
+                    <form method="post" action="{{ url_for('scraping_execute', job_id=job.id) }}">
+                      <button type="submit">Executar</button>
+                    </form>
+                    <form method="post" action="{{ url_for('scraping_cancel', job_id=job.id) }}">
+                      <button type="submit" class="secondary">Cancelar</button>
+                    </form>
+                  </div>
                 {% else %}
                   —
                 {% endif %}

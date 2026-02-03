@@ -9,6 +9,17 @@
       </div>
       <a class="secondary" href="{{ url_for('scraping') }}">Voltar</a>
     </div>
+    <div class="actions pipeline-actions">
+      <form method="post" action="{{ url_for('scraping_pipeline_cancel', run_id=run_id) }}">
+        <button type="submit" class="danger">Cancelar execucao</button>
+      </form>
+      <form method="post" action="{{ url_for('scraping_pipeline_run', run_id=run_id) }}">
+        <button type="submit">Executar pipeline</button>
+      </form>
+      <form method="post" action="{{ url_for('scraping_pipeline_reprocess', run_id=run_id) }}">
+        <button type="submit" class="secondary">Reprocessar</button>
+      </form>
+    </div>
     <div class="summary-cards">
       <div class="card">
         <h3>Status</h3>
@@ -31,6 +42,9 @@
         <span class="card-meta">Inicio da coleta</span>
       </div>
     </div>
+    <p class="panel-copy helper">
+      "Executar pipeline" dispara imediatamente o <code>step01-extract-cases.py</code> e depois o runner configurado em <code>pipeline.yaml</code>.
+    </p>
   </section>
 
   <section class="panel">

@@ -15,8 +15,11 @@ Dependencies: flask, pymongo, pyyaml
 
 from __future__ import annotations
 
+import os
 import re
 import sys
+import tempfile
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -50,6 +53,8 @@ LEGISLATION_PATH = "caseData.legislationReferences"
 CASE_QUERY_COLLECTION = "case_query"
 SCRAPE_JOBS_COLLECTION = "scrape_jobs"
 QUERY_CONFIG_PATH = CONFIG_DIR / "query.yaml"
+PIPELINE_CONFIG_PATH = CONFIG_DIR / "pipeline.yaml"
+PIPELINE_JOBS_COLLECTION = "pipeline_jobs"
 
 _collection: Optional[Collection] = None
 _db = None
@@ -76,6 +81,10 @@ def _get_case_query_collection() -> Collection:
 
 def _get_scrape_jobs_collection() -> Collection:
     return _get_db()[SCRAPE_JOBS_COLLECTION]
+
+
+def _get_pipeline_jobs_collection() -> Collection:
+    return _get_db()[PIPELINE_JOBS_COLLECTION]
 
 
 def _regex(value: str, exact: bool = False) -> Dict[str, Any]:
@@ -161,6 +170,67 @@ def _load_query_defaults() -> Dict[str, Any]:
     }
 
 
+def _load_query_raw() -> Dict[str, Any]:
+    if not QUERY_CONFIG_PATH.exists():
+        return {}
+    return yaml.safe_load(QUERY_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+
+
+def _merge_query_cfg(raw: Dict[str, Any], job_query: Dict[str, Any]) -> Dict[str, Any]:
+    q = raw.setdefault("query", {})
+    paging = q.setdefault("paging", {})
+    sorting = q.setdefault("sorting", {})
+    http = raw.setdefault("http", {})
+    runtime = raw.setdefault("runtime", {})
+    fixed = raw.setdefault("fixed_query_params", {})
+    flags = fixed.setdefault("text_search_flags", {})
+    filters = fixed.setdefault("filters", {})
+
+    q["query_string"] = job_query.get("queryString", q.get("query_string"))
+    q["full_text"] = job_query.get("fullText", q.get("full_text", True))
+    paging["page"] = job_query.get("page", paging.get("page", 1))
+    paging["page_size"] = job_query.get("pageSize", paging.get("page_size", 50))
+    sorting["sort"] = job_query.get("sort", sorting.get("sort", "_score"))
+    sorting["sort_by"] = job_query.get("sortBy", sorting.get("sort_by", "desc"))
+    http["request_delay_seconds"] = job_query.get("requestDelaySeconds", http.get("request_delay_seconds", 0))
+    http["ssl_verify"] = job_query.get("sslVerify", http.get("ssl_verify", True))
+    runtime["headed_mode"] = job_query.get("headedMode", runtime.get("headed_mode", False))
+    fixed["base"] = job_query.get("base", fixed.get("base", "acordaos"))
+    flags["synonym"] = job_query.get("synonym", flags.get("synonym", True))
+    flags["plural"] = job_query.get("plural", flags.get("plural", True))
+    flags["stems"] = job_query.get("stems", flags.get("stems", False))
+    flags["exact_search"] = job_query.get("exactSearch", flags.get("exact_search", True))
+    filters["process_class_sigla"] = job_query.get(
+        "processClassSigla", filters.get("process_class_sigla", [])
+    )
+    return raw
+
+
+def _load_pipeline_steps() -> List[Dict[str, Any]]:
+    if not PIPELINE_CONFIG_PATH.exists():
+        return []
+    raw = yaml.safe_load(PIPELINE_CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    pipeline = raw.get("pipeline") if isinstance(raw.get("pipeline"), dict) else {}
+    execution = pipeline.get("execution") if isinstance(pipeline.get("execution"), dict) else {}
+    steps = execution.get("steps") if isinstance(execution.get("steps"), list) else []
+    output: List[Dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if step.get("enabled") is False:
+            continue
+        script = str(step.get("script") or "").strip()
+        if not script:
+            continue
+        output.append(
+            {
+                "script": script,
+                "input_format": str(step.get("input_format") or ""),
+            }
+        )
+    return output
+
+
 def _parse_query_url(query_url: str) -> Dict[str, Any]:
     if not query_url:
         return {}
@@ -189,6 +259,7 @@ def _status_meta() -> Dict[str, Dict[str, str]]:
         "completed": {"label": "Concluído", "class": "status-pill status-pill--success"},
         "failed": {"label": "Falhou", "class": "status-pill status-pill--danger"},
         "canceled": {"label": "Cancelado", "class": "status-pill status-pill--muted"},
+        "skipped": {"label": "Ignorado", "class": "status-pill status-pill--muted"},
         "extracted": {"label": "Concluído", "class": "status-pill status-pill--success"},
         "extracting": {"label": "Em andamento", "class": "status-pill status-pill--running"},
         "new": {"label": "Agendado", "class": "status-pill status-pill--scheduled"},
@@ -1522,6 +1593,102 @@ def _compute_processing_step_summary(
         "finished_at": row.get("finishedAt"),
     }
 
+
+def _step_summary_for_script(
+    case_query_doc: Dict[str, Any],
+    case_data_col: Collection,
+    base_match: Dict[str, Any],
+    script: str,
+) -> Dict[str, Any]:
+    script = script.strip()
+    if script == "step01-extract-cases.py":
+        status = str(case_query_doc.get("status") or "unknown")
+        total = int(case_query_doc.get("extractedCount") or 0)
+        return {
+            "status": status if status in {"new", "extracting", "extracted", "error"} else "unknown",
+            "total": total,
+            "started_at": case_query_doc.get("extractingAt"),
+            "finished_at": case_query_doc.get("processedDate"),
+        }
+    if script == "step02-get-case-html.py":
+        return _compute_step_summary(
+            case_data_col,
+            base_match,
+            status_field="processing.caseScrapeStatus",
+            success_values=["success"],
+            error_values=["error", "challenge"],
+            start_field="processing.caseScrapeAt",
+            end_field="processing.caseScrapeAt",
+        )
+    if script == "step03-clean-case-html.py":
+        return _compute_processing_step_summary(
+            case_data_col,
+            base_match,
+            success_field="processing.caseHtmlCleanedAt",
+            error_field="processing.caseHtmlCleanError",
+            start_field="processing.caseHtmlCleaningAt",
+            end_field="processing.caseHtmlCleanedAt",
+        )
+    if script == "step04-extract-sessions.py":
+        return _compute_processing_step_summary(
+            case_data_col,
+            base_match,
+            success_field="processing.caseSectionsExtractedAt",
+            error_field="processing.caseSectionsError",
+            start_field="processing.caseSectionsExtractingAt",
+            end_field="processing.caseSectionsExtractedAt",
+        )
+    if script == "step05-extract-keywords-parties.py":
+        return _compute_processing_step_summary(
+            case_data_col,
+            base_match,
+            success_field="processing.partiesKeywords.finishedAt",
+            error_field="status.error",
+            start_field="processing.partiesKeywords.finishedAt",
+            end_field="processing.partiesKeywords.finishedAt",
+        )
+    if script == "step06-extract-legislation-mistral.py":
+        return _compute_step_summary(
+            case_data_col,
+            base_match,
+            status_field="processing.caseLegislationRefsStatus",
+            success_values=["success"],
+            error_values=["error"],
+            start_field="processing.caseLegislationRefsAt",
+            end_field="processing.caseLegislationRefsAt",
+        )
+    if script == "step07-extract-notes-mistral.py":
+        return _compute_step_summary(
+            case_data_col,
+            base_match,
+            status_field="processing.caseNotesRefsStatus",
+            success_values=["success"],
+            error_values=["error"],
+            start_field="processing.caseNotesRefsAt",
+            end_field="processing.caseNotesRefsAt",
+        )
+    if script == "step08-doctrine-mistral.py":
+        return _compute_step_summary(
+            case_data_col,
+            base_match,
+            status_field="processing.caseDoctrineStatus",
+            success_values=["success"],
+            error_values=["error"],
+            start_field="processing.caseDoctrineAt",
+            end_field="processing.caseDoctrineAt",
+        )
+    if script == "step09-extract-decision-details-mistral.py":
+        return _compute_step_summary(
+            case_data_col,
+            base_match,
+            status_field="processing.caseDecisionDetailsStatus",
+            success_values=["success"],
+            error_values=["error"],
+            start_field="processing.caseDecisionDetailsAt",
+            end_field="processing.caseDecisionDetailsAt",
+        )
+    return {"status": "unknown", "total": 0, "started_at": None, "finished_at": None}
+
 app = Flask(__name__)
 
 
@@ -1883,8 +2050,9 @@ def scraping() -> Any:
 @app.route("/scraping/schedule", methods=["POST"])
 def scraping_schedule() -> Any:
     defaults = _load_query_defaults()
+    execution_mode = (request.form.get("execution_mode") or "schedule").strip().lower()
     scheduled_for = _parse_datetime_local(request.form.get("scheduled_for") or "")
-    if scheduled_for is None:
+    if execution_mode == "now" or scheduled_for is None:
         scheduled_for = datetime.now()
 
     query = {
@@ -1920,6 +2088,7 @@ def scraping_schedule() -> Any:
         "query": query,
         "resultCount": None,
         "error": None,
+        "executionMode": execution_mode,
         "source": "ui",
     }
     _get_scrape_jobs_collection().insert_one(doc)
@@ -1941,6 +2110,77 @@ def scraping_cancel(job_id: str) -> Any:
     return redirect(url_for("scraping"))
 
 
+@app.route("/scraping/execute/<job_id>", methods=["POST"])
+def scraping_execute(job_id: str) -> Any:
+    try:
+        obj_id = ObjectId(job_id)
+    except InvalidId:
+        return redirect(url_for("scraping"))
+
+    jobs_col = _get_scrape_jobs_collection()
+    job = jobs_col.find_one({"_id": obj_id})
+    if not job:
+        return redirect(url_for("scraping"))
+
+    now = datetime.now(timezone.utc)
+    jobs_col.update_one(
+        {"_id": obj_id},
+        {"$set": {"status": "running", "updatedAt": now}},
+    )
+
+    query_raw = _load_query_raw()
+    job_query = job.get("query") if isinstance(job.get("query"), dict) else {}
+    merged = _merge_query_cfg(query_raw, job_query)
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as tmp:
+            yaml.safe_dump(merged, tmp, allow_unicode=True, sort_keys=False)
+            temp_path = tmp.name
+
+        script_path = str(BASE_DIR / "core" / "step00-search-stf.py")
+        result = subprocess.run(
+            [sys.executable, script_path, "--query-config", temp_path],
+            cwd=str(BASE_DIR / "core"),
+            capture_output=True,
+            text=True,
+        )
+
+        latest_run = _get_case_query_collection().find_one(
+            {"queryString": job_query.get("queryString")},
+            sort=[("extractionTimestamp", -1)],
+        )
+        jobs_col.update_one(
+            {"_id": obj_id},
+            {
+                "$set": {
+                    "status": "completed" if result.returncode == 0 else "failed",
+                    "updatedAt": datetime.now(timezone.utc),
+                    "lastRunId": str(latest_run.get("_id")) if latest_run else None,
+                    "resultCount": latest_run.get("extractedCount") if latest_run else None,
+                    "lastOutput": result.stdout[-4000:] if result.stdout else None,
+                    "lastError": result.stderr[-4000:] if result.stderr else None,
+                }
+            },
+        )
+    except Exception as e:
+        jobs_col.update_one(
+            {"_id": obj_id},
+            {
+                "$set": {
+                    "status": "failed",
+                    "updatedAt": datetime.now(timezone.utc),
+                    "error": str(e),
+                }
+            },
+        )
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+    return redirect(url_for("scraping"))
+
+
 @app.route("/scraping/<run_id>")
 def scraping_detail(run_id: str) -> Any:
     try:
@@ -1958,47 +2198,19 @@ def scraping_detail(run_id: str) -> Any:
     base_match = {"identity.caseQueryId": case_query_id_str}
     total_cases = case_data_col.count_documents(base_match)
 
-    step_download = _compute_step_summary(
-        case_data_col,
-        base_match,
-        status_field="processing.caseScrapeStatus",
-        success_values=["success"],
-        error_values=["error", "challenge"],
-        start_field="processing.caseScrapeAt",
-        end_field="processing.caseScrapeAt",
-    )
-    step_process = _compute_processing_step_summary(
-        case_data_col,
-        base_match,
-        success_field="processing.caseSectionsExtractedAt",
-        error_field="processing.caseSectionsError",
-        start_field="processing.caseSectionsExtractingAt",
-        end_field="processing.caseSectionsExtractedAt",
-    )
-
-    steps = [
-        {
-            "name": "step01-download-case-data.py",
-            "status": step_download["status"],
-            "total": step_download["total"],
-            "started_at": step_download["started_at"],
-            "finished_at": step_download["finished_at"],
-        },
-        {
-            "name": "step02-process-case-data.py",
-            "status": step_process["status"],
-            "total": step_process["total"],
-            "started_at": step_process["started_at"],
-            "finished_at": step_process["finished_at"],
-        },
-        {
-            "name": "step03-generate-reports.py",
-            "status": "unknown",
-            "total": 0,
-            "started_at": None,
-            "finished_at": None,
-        },
-    ]
+    configured_steps = _load_pipeline_steps()
+    steps = []
+    for step in configured_steps:
+        summary = _step_summary_for_script(case_query, case_data_col, base_match, step["script"])
+        steps.append(
+            {
+                "name": step["script"],
+                "status": summary["status"],
+                "total": summary["total"],
+                "started_at": summary["started_at"],
+                "finished_at": summary["finished_at"],
+            }
+        )
 
     status_meta = _status_meta()
     for step in steps:
@@ -2024,7 +2236,73 @@ def scraping_detail(run_id: str) -> Any:
         run_status_class=run_meta["class"],
         total_cases=total_cases,
         steps=steps,
+        run_id=run_id,
     )
+
+
+def _enqueue_pipeline_job(case_query_id: str, action: str) -> None:
+    now = datetime.now(timezone.utc)
+    _get_pipeline_jobs_collection().insert_one(
+        {
+            "caseQueryId": case_query_id,
+            "action": action,
+            "status": "scheduled",
+            "createdAt": now,
+            "updatedAt": now,
+            "source": "ui",
+        }
+    )
+
+
+@app.route("/scraping/<run_id>/pipeline/run", methods=["POST"])
+def scraping_pipeline_run(run_id: str) -> Any:
+    try:
+        obj_id = ObjectId(run_id)
+    except InvalidId:
+        return redirect(url_for("scraping"))
+
+    case_query_col = _get_case_query_collection()
+    case_query = case_query_col.find_one({"_id": obj_id})
+    if not case_query:
+        return redirect(url_for("scraping"))
+
+    core_dir = BASE_DIR / "core"
+    step01_path = core_dir / "step01-extract-cases.py"
+    pipeline_path = core_dir / "step00-run-pipeline-02-09.py"
+
+    step01_result = subprocess.run(
+        [sys.executable, str(step01_path), "--case-query-id", run_id],
+        cwd=str(core_dir),
+        capture_output=True,
+        text=True,
+    )
+
+    if step01_result.returncode != 0:
+        return redirect(url_for("scraping_detail", run_id=run_id))
+
+    subprocess.run(
+        [sys.executable, str(pipeline_path)],
+        cwd=str(core_dir),
+        capture_output=True,
+        text=True,
+    )
+    return redirect(url_for("scraping_detail", run_id=run_id))
+
+
+@app.route("/scraping/<run_id>/pipeline/reprocess", methods=["POST"])
+def scraping_pipeline_reprocess(run_id: str) -> Any:
+    _enqueue_pipeline_job(run_id, "reprocess")
+    return redirect(url_for("scraping_detail", run_id=run_id))
+
+
+@app.route("/scraping/<run_id>/pipeline/cancel", methods=["POST"])
+def scraping_pipeline_cancel(run_id: str) -> Any:
+    now = datetime.now(timezone.utc)
+    _get_pipeline_jobs_collection().update_many(
+        {"caseQueryId": run_id, "status": {"$in": ["scheduled", "running"]}},
+        {"$set": {"status": "canceled", "updatedAt": now}},
+    )
+    return redirect(url_for("scraping_detail", run_id=run_id))
 
 
 @app.route("/processos")
@@ -2079,4 +2357,4 @@ def processos_detail(process_id: str) -> Any:
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=False)
