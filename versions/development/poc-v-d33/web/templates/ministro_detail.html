@@ -131,7 +131,9 @@
           <tbody>
             {% for row in top_legislation %}
               <tr>
-                <td>{{ row.label }}</td>
+                <td>
+                  <a href="{{ url_for('legislacao_detail', norm=row.label) }}">{{ row.label }}</a>
+                </td>
                 <td>{{ row.total }}</td>
               </tr>
             {% endfor %}

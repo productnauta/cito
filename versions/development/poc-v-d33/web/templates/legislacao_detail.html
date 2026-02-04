@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <h1>Legislação: {{ detail.norm_identifier }}</h1>
+      <span class="chip">Total de citações: {{ detail.total_citations }}</span>
+      <span class="chip">Processos: {{ detail.total_cases }}</span>
+    </div>
+    <p class="panel-copy">
+      Detalhamento das citações associadas à legislação selecionada.
+    </p>
+    <div class="actions">
+      <a class="secondary" href="{{ url_for('analise_citacoes') }}">Voltar ao painel</a>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Informações principais</h2>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Total de citações</span>
+        <span class="stat-value">{{ detail.total_citations }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Total de processos</span>
+        <span class="stat-value">{{ detail.total_cases }}</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Tipo de legislação</span>
+        <span class="stat-value">{{ detail.norm_type }}</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Citações detalhadas</h2>
+    </div>
+    {% if detail.rows %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Processo</th>
+            <th>Relator</th>
+            <th>Classe</th>
+            <th>Data do Julgamento</th>
+            <th>Detalhe da citação</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in detail.rows %}
+            <tr>
+              <td>
+                {% if row.stf_id %}
+                  <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
+                {% else %}
+                  {{ row.case_title }}
+                {% endif %}
+              </td>
+              <td>{{ row.rapporteur or '-' }}</td>
+              <td>{{ row.case_class or '-' }}</td>
+              <td>{{ row.judgment_date or '-' }}</td>
+              <td>{{ row.reference_detail or '-' }}</td>
+              <td>
+                {% if row.case_url %}
+                  <a href="{{ row.case_url }}" target="_blank" rel="noopener">Abrir</a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhuma citação encontrada para esta legislação.</p>
+    {% endif %}
+  </section>
+{% endblock %}

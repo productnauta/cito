@@ -184,7 +184,7 @@
       {% if detail.legislation_ids %}
         <div class="chip-row">
           {% for norm in detail.legislation_ids[:20] %}
-            <a class="chip small chip-link" href="{{ url_for('processos', legislation_norm=norm) }}">
+            <a class="chip small chip-link" href="{{ url_for('legislacao_detail', norm=norm) }}">
               {{ norm }}
             </a>
           {% endfor %}
@@ -195,7 +195,7 @@
           </div>
           <div class="chip-row chip-row--hidden" data-chip-group="legislation">
             {% for norm in detail.legislation_ids[20:] %}
-              <a class="chip small chip-link" href="{{ url_for('processos', legislation_norm=norm) }}">
+              <a class="chip small chip-link" href="{{ url_for('legislacao_detail', norm=norm) }}">
                 {{ norm }}
               </a>
             {% endfor %}

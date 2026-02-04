@@ -141,7 +141,7 @@
           {% for tag in tag_clouds.legislation %}
             <a
               class="tag-pill {{ tag.size_class }}"
-              href="{{ url_for('processos', legislation_norm=tag.label, **filter_params_no_legislation) }}"
+              href="{{ url_for('legislacao_detail', norm=tag.label) }}"
             >
               {{ tag.label }} ({{ tag.count }})
             </a>

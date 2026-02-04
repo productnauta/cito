@@ -191,6 +191,55 @@ def _format_datetime(value: Any) -> str:
     return str(value) if value else ""
 
 
+def _normalize_norm_identifier(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
+def _norm_references_count(norm: Any) -> int:
+    if not isinstance(norm, dict):
+        return 0
+    refs = norm.get("normReferences")
+    if isinstance(refs, list):
+        return len(refs)
+    return 0
+
+
+def _format_norm_reference(ref: Any) -> str:
+    if ref is None:
+        return "—"
+    if isinstance(ref, str):
+        return _normalize_ref_text(ref) or "—"
+    if not isinstance(ref, dict):
+        return _normalize_ref_text(ref) or "—"
+
+    label_map = {
+        "artigo": "Artigo",
+        "article": "Artigo",
+        "inciso": "Inciso",
+        "alinea": "Alínea",
+        "alínea": "Alínea",
+        "paragrafo": "Parágrafo",
+        "parágrafo": "Parágrafo",
+        "paragrafo_unico": "Parágrafo único",
+        "item": "Item",
+        "caput": "Caput",
+    }
+    parts = []
+    for key, label in label_map.items():
+        if key in ref and ref.get(key):
+            parts.append(f"{label} {ref.get(key)}")
+    if parts:
+        return ", ".join(parts)
+
+    extra_parts = []
+    for key, value in ref.items():
+        if value in (None, "", []):
+            continue
+        extra_parts.append(f"{key}: {value}")
+    return "; ".join(extra_parts) if extra_parts else "—"
+
 def _parse_datetime_local(value: str) -> Optional[datetime]:
     if not value:
         return None
@@ -1468,7 +1517,10 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
         case_data = doc.get("caseData") or {}
         doctrine_count = len(case_data.get("doctrineReferences") or [])
         keywords_count = len(case_data.get("caseKeywords") or [])
-        legislation_count = len(case_data.get("legislationReferences") or [])
+        legislation_count = sum(
+            _norm_references_count(norm)
+            for norm in (case_data.get("legislationReferences") or [])
+        )
         parties_count = len(case_data.get("caseParties") or [])
         stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
 
@@ -1541,14 +1593,25 @@ def _aggregate_legislation_tag_cloud(
         pipeline.append({"$match": match})
     pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
     pipeline.append(
-        {"$addFields": {"_normId": f"${LEGISLATION_PATH}.normIdentifier"}}
+        {
+            "$addFields": {
+                "_normId": f"${LEGISLATION_PATH}.normIdentifier",
+                "_refCount": {
+                    "$cond": [
+                        {"$isArray": f"${LEGISLATION_PATH}.normReferences"},
+                        {"$size": f"${LEGISLATION_PATH}.normReferences"},
+                        0,
+                    ]
+                },
+            }
+        }
     )
     pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
     pipeline.append(
         {
             "$group": {
                 "_id": "$_normId",
-                "total": {"$sum": 1},
+                "total": {"$sum": "$_refCount"},
             }
         }
     )
@@ -1657,30 +1720,14 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     legislation_refs_total = 0
     for norm in legislation_refs_raw:
         if not isinstance(norm, dict):
-            norm_id = str(norm)
-            legislation_refs.append({"normIdentifier": norm_id})
-            legislation_ids.append(norm_id)
-            if norm_id:
-                legislation_refs_total += 1
             continue
-        norm_id = norm.get("normIdentifier")
-        norm_id_str = str(norm_id).strip() if norm_id is not None else ""
-        if not norm_id_str or norm_id_str.isdigit():
-            norm_type = str(norm.get("normType") or "NORMA").strip()
-            norm_year = norm.get("normYear")
-            if norm_year:
-                norm_id_str = f"{norm_type}-{norm_year}"
-            else:
-                norm_desc = str(norm.get("normDescription") or "").strip()
-                norm_id_str = norm_desc or norm_id_str or "—"
+        norm_id_str = _normalize_norm_identifier(norm.get("normIdentifier"))
+        if not norm_id_str:
+            continue
         legislation_refs.append({"normIdentifier": norm_id_str})
         legislation_ids.append(norm_id_str)
-        refs = norm.get("normReferences")
-        if isinstance(refs, list) and refs:
-            legislation_refs_total += len(refs)
-        elif norm_id_str:
-            legislation_refs_total += 1
-    legislation_ids = [n for n in legislation_ids if n and n != "—"]
+        legislation_refs_total += _norm_references_count(norm)
+    legislation_ids = [n for n in legislation_ids if n]
     legislation_norms_total = len({n for n in legislation_ids if n})
     keywords = case_data.get("caseKeywords") or []
 
@@ -1812,7 +1859,24 @@ def _aggregate_process_kpis(collection: Collection, match: Dict[str, Any]) -> Di
                     "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
                 },
                 "_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}},
-                "_legislationCount": {"$size": {"$ifNull": [f"${LEGISLATION_PATH}", []]}},
+                "_legislationCount": {
+                    "$reduce": {
+                        "input": {"$ifNull": [f"${LEGISLATION_PATH}", []]},
+                        "initialValue": 0,
+                        "in": {
+                            "$add": [
+                                "$$value",
+                                {
+                                    "$cond": [
+                                        {"$isArray": "$$this.normReferences"},
+                                        {"$size": "$$this.normReferences"},
+                                        0,
+                                    ]
+                                },
+                            ]
+                        },
+                    }
+                },
             }
         }
     )
@@ -1871,7 +1935,24 @@ def _aggregate_reference_totals(collection: Collection, match: Dict[str, Any]) -
         {
             "$addFields": {
                 "_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}},
-                "_legislationCount": {"$size": {"$ifNull": [f"${LEGISLATION_PATH}", []]}},
+                "_legislationCount": {
+                    "$reduce": {
+                        "input": {"$ifNull": [f"${LEGISLATION_PATH}", []]},
+                        "initialValue": 0,
+                        "in": {
+                            "$add": [
+                                "$$value",
+                                {
+                                    "$cond": [
+                                        {"$isArray": "$$this.normReferences"},
+                                        {"$size": "$$this.normReferences"},
+                                        0,
+                                    ]
+                                },
+                            ]
+                        },
+                    }
+                },
             }
         }
     )
@@ -2120,6 +2201,98 @@ def _fetch_author_citations(
         row["judgment_date"] = _format_date(row.get("judgment_date"))
         row["decision_final"] = _normalize_decision_text(row.get("decision_final"))
     return rows
+
+
+def _fetch_legislation_detail(
+    collection: Collection, norm_identifier: str
+) -> Dict[str, Any]:
+    from collections import Counter
+
+    norm_identifier = _normalize_norm_identifier(norm_identifier)
+    target = norm_identifier.casefold()
+    match = {
+        LEGISLATION_PATH: {
+            "$elemMatch": {"normIdentifier": _regex(norm_identifier, exact=True)}
+        }
+    }
+    projection = {
+        "identity.stfDecisionId": 1,
+        "identity.caseTitle": 1,
+        "identity.caseClass": 1,
+        "identity.rapporteur": 1,
+        "identity.judgingBody": 1,
+        "caseIdentification.caseClass": 1,
+        "caseIdentification.rapporteur": 1,
+        "caseIdentification.judgingBody": 1,
+        "caseTitle": 1,
+        "caseContent.caseUrl": 1,
+        "dates.judgmentDate": 1,
+        DECISION_RESULT_PATH: 1,
+        LEGISLATION_PATH: 1,
+    }
+    cursor = collection.find(match, projection=projection)
+
+    rows: List[Dict[str, Any]] = []
+    cases_seen: set = set()
+    norm_type_counter: Counter[str] = Counter()
+    total_citations = 0
+
+    for doc in cursor:
+        identity = doc.get("identity") or {}
+        case_ident = doc.get("caseIdentification") or {}
+        case_data = doc.get("caseData") or {}
+        case_title = identity.get("caseTitle") or doc.get("caseTitle") or "-"
+        case_class = identity.get("caseClass") or case_ident.get("caseClass") or "-"
+        rapporteur = identity.get("rapporteur") or case_ident.get("rapporteur") or "-"
+        judging_body = identity.get("judgingBody") or case_ident.get("judgingBody") or "-"
+        judgment_date = _format_date((doc.get("dates") or {}).get("judgmentDate"))
+        decision_final = _normalize_decision_text(
+            (case_data.get("decisionDetails") or {}).get("finalDecision")
+        )
+        case_url = (doc.get("caseContent") or {}).get("caseUrl") or identity.get("caseUrl")
+        stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
+
+        for norm in case_data.get("legislationReferences") or []:
+            if not isinstance(norm, dict):
+                continue
+            norm_id = _normalize_norm_identifier(norm.get("normIdentifier"))
+            if not norm_id or norm_id.casefold() != target:
+                continue
+            if norm.get("normType"):
+                norm_type_counter[str(norm.get("normType")).strip()] += 1
+            cases_seen.add(stf_id)
+            refs = norm.get("normReferences") if isinstance(norm.get("normReferences"), list) else []
+            for ref in refs:
+                total_citations += 1
+                rows.append(
+                    {
+                        "case_title": case_title,
+                        "case_class": case_class,
+                        "rapporteur": rapporteur,
+                        "judging_body": judging_body,
+                        "judgment_date": judgment_date,
+                        "decision_final": decision_final,
+                        "reference_detail": _format_norm_reference(ref),
+                        "case_url": case_url,
+                        "stf_id": stf_id,
+                    }
+                )
+
+    rows.sort(key=lambda x: x.get("judgment_date") or "", reverse=True)
+
+    norm_type = ""
+    if norm_type_counter:
+        norm_type = norm_type_counter.most_common(1)[0][0]
+    if not norm_type:
+        norm_type = _guess_legislation_type(norm_identifier)
+
+    return {
+        "norm_identifier": norm_identifier,
+        "norm_type": _normalize_legislation_type(norm_type),
+        "total_citations": total_citations,
+        "total_cases": len(cases_seen),
+        "rows": rows,
+    }
 
 
 def _aggregate_top_cases_by_doctrine(
@@ -2505,13 +2678,26 @@ def _aggregate_top_legislation_for_minister(
     if match:
         pipeline.append({"$match": match})
     pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
-    pipeline.append({"$addFields": {"_normId": f"${LEGISLATION_PATH}.normIdentifier"}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_normId": f"${LEGISLATION_PATH}.normIdentifier",
+                "_refCount": {
+                    "$cond": [
+                        {"$isArray": f"${LEGISLATION_PATH}.normReferences"},
+                        {"$size": f"${LEGISLATION_PATH}.normReferences"},
+                        0,
+                    ]
+                },
+            }
+        }
+    )
     pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
     pipeline.append(
         {
             "$group": {
                 "_id": "$_normId",
-                "total": {"$sum": 1},
+                "total": {"$sum": "$_refCount"},
             }
         }
     )
@@ -2659,6 +2845,13 @@ def _aggregate_legislations(
             "$addFields": {
                 "_normId": f"${LEGISLATION_PATH}.normIdentifier",
                 "_normType": f"${LEGISLATION_PATH}.normType",
+                "_refCount": {
+                    "$cond": [
+                        {"$isArray": f"${LEGISLATION_PATH}.normReferences"},
+                        {"$size": f"${LEGISLATION_PATH}.normReferences"},
+                        0,
+                    ]
+                },
             }
         }
     )
@@ -2667,7 +2860,7 @@ def _aggregate_legislations(
         {
             "$group": {
                 "_id": {"normId": "$_normId", "normType": "$_normType"},
-                "total": {"$sum": 1},
+                "total": {"$sum": "$_refCount"},
             }
         }
     )
@@ -2779,17 +2972,15 @@ def _compute_minister_reference_stats(
 
         for norm in legislation_refs:
             if not isinstance(norm, dict):
-                ref_id = ""
-            else:
-                ref_id = _normalize_ref_text(norm.get("normIdentifier"))
+                continue
+            ref_id = _normalize_ref_text(norm.get("normIdentifier"))
             if not ref_id:
                 continue
-            key = (case_id, "legislacao", ref_id)
-            if key in seen:
+            ref_count = _norm_references_count(norm)
+            if ref_count <= 0:
                 continue
-            seen.add(key)
-            total_citations += 1
-            legislation_counter[ref_id] += 1
+            total_citations += ref_count
+            legislation_counter[ref_id] += ref_count
 
         for ref in doctrine_refs:
             if not isinstance(ref, dict):
@@ -3413,6 +3604,26 @@ def analise_citacoes_detail() -> Any:
         limit=limit,
         next_limit=next_limit,
         show_more=total_cases > limit,
+    )
+
+
+@app.route("/legislacoes/detalhe")
+def legislacao_detail() -> Any:
+    norm_identifier = (
+        str(request.args.get("norm") or request.args.get("normIdentifier") or request.args.get("norm_identifier") or "")
+        .strip()
+    )
+    if not norm_identifier:
+        return redirect(url_for("analise_citacoes"))
+
+    collection = _get_collection()
+    detail = _fetch_legislation_detail(collection, norm_identifier)
+
+    return render_template(
+        "legislacao_detail.html",
+        title="CITO | Legislação | Detalhe",
+        brand_sub="Legislação",
+        detail=detail,
     )
 
 
