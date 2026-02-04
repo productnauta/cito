@@ -64,11 +64,20 @@ MINISTER_DETAIL_LABELS = {
     "total_processes": "Total de processos",
     "total_relatorias": "Total de relatorias",
     "citations_made": "Citações Feitas",
+    "citations_subtitle": "Total de referências feitas pelo ministro em decisões",
+    "procedence_rate": "Taxa de Procedência",
+    "avg_citations": "Média de citações por processo",
+    "diversity_sources": "Diversidade de fontes",
+    "distinct_authors": "autores distintos",
+    "distinct_norms": "normas distintas",
     "doutrinas": "Doutrinas",
     "acordaos": "Acórdãos",
     "legislacoes": "Legislações",
     "decisoes": "Decisões",
     "relatoria_processos": "Relatoria dos Processos",
+    "chart_decisions_year": "Evolução temporal das decisões",
+    "chart_decision_profile": "Perfil decisório",
+    "chart_citation_sources": "Fontes citadas pelo ministro",
     "th_autor": "Autor",
     "th_total": "Total",
     "th_acordao": "Acórdão",
@@ -167,6 +176,30 @@ def _normalize_decision_label(value: Optional[str]) -> str:
         return "Deferido"
     if any(tok in low for tok in ["indefer", "improcedente", "contrario", "contrário"]):
         return "Indeferido"
+    return "Outros"
+
+
+def _normalize_decision_text(value: Optional[str]) -> str:
+    if value is None:
+        return "Não informado"
+    s = " ".join(str(value).split()).strip()
+    if not s:
+        return "Não informado"
+    return " ".join(part.capitalize() for part in s.split())
+
+
+def _classify_decision_profile(value: Optional[str]) -> str:
+    if value is None:
+        return "Outros"
+    low = " ".join(str(value).split()).strip().lower()
+    if not low:
+        return "Outros"
+    if "parcial" in low:
+        return "Parcialmente procedente"
+    if any(tok in low for tok in ["procedente", "defer", "provimento", "favoravel", "favorável"]):
+        return "Procedente"
+    if any(tok in low for tok in ["improcedente", "indefer", "negado", "negativo", "rejeitado", "desprovido"]):
+        return "Improcedente"
     return "Outros"
 
 
@@ -357,6 +390,7 @@ def _get_process_filters(args: Dict[str, Any]) -> Dict[str, str]:
         "author": str(args.get("author") or "").strip(),
         "legislation_norm": str(args.get("legislation_norm") or "").strip(),
         "acordao_ref": str(args.get("acordao_ref") or "").strip(),
+        "citations_made": str(args.get("citations_made") or "").strip(),
     }
 
 
@@ -854,6 +888,7 @@ def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
     author = filters.get("author") or ""
     legislation_norm = filters.get("legislation_norm") or ""
     acordao_ref = filters.get("acordao_ref") or ""
+    citations_made = filters.get("citations_made") or ""
     date_start = _parse_date_value(filters.get("date_start") or "")
     date_end = _parse_date_value(filters.get("date_end") or "")
 
@@ -914,6 +949,21 @@ def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
                         ],
                     }
                 }
+            }
+        )
+
+    if citations_made:
+        and_clauses.append(
+            {
+                "$or": [
+                    {"caseData.doctrineReferences.0": {"$exists": True}},
+                    {"caseData.legislationReferences.0": {"$exists": True}},
+                    {
+                        "caseData.notesReferences": {
+                            "$elemMatch": {"noteType": "stf_acordao"}
+                        }
+                    },
+                ]
             }
         )
 
@@ -1803,6 +1853,29 @@ def _aggregate_minister_detail(
     top_doctrine = citation_stats["top_doctrine"]
     top_norms = citation_stats["top_acordaos"]
     top_legislation = citation_stats["top_legislation"]
+    decision_profile = citation_stats["decision_profile"]
+    decisions_by_year = citation_stats["decisions_by_year"]
+    distinct_authors = citation_stats["distinct_authors"]
+    distinct_norms = citation_stats["distinct_norms"]
+    citation_sources = citation_stats["citation_sources"]
+
+    decisions_total = sum(item.get("total", 0) for item in decision_profile)
+    procedente_total = 0
+    parcial_total = 0
+    for item in decision_profile:
+        if item.get("label") == "Procedente":
+            procedente_total = int(item.get("total") or 0)
+        elif item.get("label") == "Parcialmente procedente":
+            parcial_total = int(item.get("total") or 0)
+    if decisions_total > 0:
+        procedence_rate = ((procedente_total + parcial_total) / decisions_total) * 100
+    else:
+        procedence_rate = None
+
+    if total_processes > 0:
+        avg_citations_per_process = total_citations / total_processes
+    else:
+        avg_citations_per_process = None
 
     return {
         "total_processes": total_processes,
@@ -1812,6 +1885,13 @@ def _aggregate_minister_detail(
         "top_doctrine": top_doctrine,
         "top_norms": top_norms,
         "top_legislation": top_legislation,
+        "decision_profile": decision_profile,
+        "decisions_by_year": decisions_by_year,
+        "procedence_rate": procedence_rate,
+        "avg_citations_per_process": avg_citations_per_process,
+        "distinct_authors": distinct_authors,
+        "distinct_norms": distinct_norms,
+        "citation_sources": citation_sources,
     }
 
 
@@ -1864,6 +1944,7 @@ def _compute_minister_reference_stats(
         "caseData.doctrineReferences": 1,
         "caseData.notesReferences": 1,
         DECISION_RESULT_PATH: 1,
+        "dates.judgmentDate": 1,
     }
     cursor = collection.find(match, projection=projection)
 
@@ -1872,6 +1953,8 @@ def _compute_minister_reference_stats(
     doctrine_counter: Counter[str] = Counter()
     acordao_counter: Counter[str] = Counter()
     decision_counter: Counter[str] = Counter()
+    decision_profile_counter: Counter[str] = Counter()
+    decisions_by_year: Counter[int] = Counter()
 
     for doc in cursor:
         case_id = (doc.get("identity") or {}).get("stfDecisionId") or str(doc.get("_id"))
@@ -1881,6 +1964,7 @@ def _compute_minister_reference_stats(
         legislation_refs = case_data.get("legislationReferences") or []
         doctrine_refs = case_data.get("doctrineReferences") or []
         notes_refs = case_data.get("notesReferences") or []
+        judgment_date = (doc.get("dates") or {}).get("judgmentDate")
 
         for norm in legislation_refs:
             if not isinstance(norm, dict):
@@ -1948,8 +2032,12 @@ def _compute_minister_reference_stats(
         decision_raw = _normalize_ref_text(
             (doc.get("caseData") or {}).get("decisionDetails", {}).get("decisionResult", {}).get("finalDecision")
         )
-        decision_label = decision_raw or "Não informado"
+        decision_label = _normalize_decision_text(decision_raw)
         decision_counter[decision_label] += 1
+        decision_profile_counter[_classify_decision_profile(decision_raw)] += 1
+
+        if isinstance(judgment_date, datetime):
+            decisions_by_year[judgment_date.year] += 1
 
     def _top_items(counter: Counter[str], limit: int = 5) -> List[Dict[str, Any]]:
         items = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
@@ -1960,12 +2048,31 @@ def _compute_minister_reference_stats(
         for k, v in sorted(decision_counter.items(), key=lambda x: (-x[1], x[0]))
     ]
 
+    profile_order = ["Procedente", "Improcedente", "Parcialmente procedente", "Outros"]
+    decision_profile = [
+        {"label": label, "total": int(decision_profile_counter.get(label, 0))}
+        for label in profile_order
+    ]
+    decisions_by_year_list = [
+        {"year": year, "total": int(total)}
+        for year, total in sorted(decisions_by_year.items())
+    ]
+
     return {
         "total_citations": total_citations,
         "top_legislation": _top_items(legislation_counter, limit=5),
         "top_doctrine": _top_items(doctrine_counter, limit=5),
         "top_acordaos": _top_items(acordao_counter, limit=5),
         "decision_distribution": decision_distribution,
+        "decision_profile": decision_profile,
+        "decisions_by_year": decisions_by_year_list,
+        "distinct_authors": len(doctrine_counter),
+        "distinct_norms": len(legislation_counter),
+        "citation_sources": {
+            "doutrina": int(sum(doctrine_counter.values())),
+            "legislacao": int(sum(legislation_counter.values())),
+            "acordaos": int(sum(acordao_counter.values())),
+        },
     }
 
 
@@ -2531,6 +2638,9 @@ def ministro_detail() -> Any:
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
+    process_filter_params = {
+        k: v for k, v in filters.items() if k in {"case_class", "date_start", "date_end"} and v
+    }
 
     return render_template(
         "ministro_detail.html",
@@ -2539,10 +2649,18 @@ def ministro_detail() -> Any:
         labels=MINISTER_DETAIL_LABELS,
         filter_params=filter_params,
         filter_params_no_minister=filter_params_no_minister,
+        process_filter_params=process_filter_params,
         total_processes=details["total_processes"],
         total_relatorias=details["total_relatorias"],
         total_citations=details["total_citations"],
+        procedence_rate=details["procedence_rate"],
+        avg_citations_per_process=details["avg_citations_per_process"],
+        distinct_authors=details["distinct_authors"],
+        distinct_norms=details["distinct_norms"],
         decision_distribution=details["decision_distribution"],
+        decision_profile=details["decision_profile"],
+        decisions_by_year=details["decisions_by_year"],
+        citation_sources=details["citation_sources"],
         top_doctrine=details["top_doctrine"],
         top_norms=details["top_norms"],
         top_legislation=details["top_legislation"],

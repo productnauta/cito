@@ -6,7 +6,7 @@ Project: CITO                File: step00-run-pipeline.py
 Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
-Description: Orchestrates the pipeline for case_data documents missing processing.caseScrapeStatus.
+Description: Orchestrates the pipeline  for case_data documents missing processing.caseScrapeStatus.
 Inputs: Mongo config (config/mongo.yaml), case_data records, optional case URL override.
 Outputs: Executes steps 02-08, logs progress, and relies on each step to persist results.
 Pipeline: get case HTML -> clean HTML -> extract sections -> parties/keywords -> legislation -> notes -> doctrine.

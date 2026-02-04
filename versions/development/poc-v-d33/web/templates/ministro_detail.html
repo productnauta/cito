@@ -24,11 +24,40 @@
         <a href="{{ url_for('processos', rapporteur=minister_name) }}">{{ total_relatorias }}</a>
       </strong>
     </article>
-    <article class="panel stat-card">
+    <a
+      class="panel stat-card stat-card-link"
+      href="{{ url_for('processos', rapporteur=minister_name, citations_made=1, **process_filter_params) }}"
+    >
       <span class="stat-label">{{ labels.citations_made }}</span>
+      <span class="stat-subtitle">{{ labels.citations_subtitle }}</span>
+      <strong class="stat-value">{{ total_citations }}</strong>
+    </a>
+    <article class="panel stat-card">
+      <span class="stat-label">{{ labels.procedence_rate }}</span>
       <strong class="stat-value">
-        <a href="{{ url_for('doutrina', minister=minister_name) }}">{{ total_citations }}</a>
+        {% if procedence_rate is not none %}
+          {{ procedence_rate|round(1) }}%
+        {% else %}
+          —
+        {% endif %}
       </strong>
+    </article>
+    <article class="panel stat-card">
+      <span class="stat-label">{{ labels.avg_citations }}</span>
+      <strong class="stat-value">
+        {% if avg_citations_per_process is not none %}
+          {{ avg_citations_per_process|round(2) }}
+        {% else %}
+          —
+        {% endif %}
+      </strong>
+    </article>
+    <article class="panel stat-card">
+      <span class="stat-label">{{ labels.diversity_sources }}</span>
+      <div class="stat-stack">
+        <span><strong>{{ distinct_authors }}</strong> {{ labels.distinct_authors }}</span>
+        <span><strong>{{ distinct_norms }}</strong> {{ labels.distinct_norms }}</span>
+      </div>
     </article>
   </section>
 
@@ -176,4 +205,129 @@
       {% endif %}
     </article>
   </section>
+
+  <section class="chart-grid">
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>{{ labels.chart_decisions_year }}</h2>
+      </div>
+      <canvas id="decisionsByYearChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>{{ labels.chart_decision_profile }}</h2>
+      </div>
+      <canvas id="decisionProfileChart"></canvas>
+    </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>{{ labels.chart_citation_sources }}</h2>
+      </div>
+      <canvas id="citationSourcesChart"></canvas>
+    </article>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    (function () {
+      if (typeof Chart === "undefined") {
+        return;
+      }
+      Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+      Chart.defaults.color = "#1a1b1f";
+
+      const decisionsByYear = {{ decisions_by_year|tojson }};
+      const decisionProfile = {{ decision_profile|tojson }};
+      const citationSources = {{ citation_sources|tojson }};
+
+      const yearCanvas = document.getElementById("decisionsByYearChart");
+      if (yearCanvas) {
+        new Chart(yearCanvas, {
+          type: "line",
+          data: {
+            labels: decisionsByYear.map((item) => item.year),
+            datasets: [
+              {
+                label: "Decisões",
+                data: decisionsByYear.map((item) => item.total),
+                borderColor: "#0f6b6a",
+                backgroundColor: "rgba(15, 107, 106, 0.15)",
+                fill: true,
+                tension: 0.3,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 },
+              },
+            },
+          },
+        });
+      }
+
+      const profileCanvas = document.getElementById("decisionProfileChart");
+      if (profileCanvas) {
+        new Chart(profileCanvas, {
+          type: "bar",
+          data: {
+            labels: decisionProfile.map((item) => item.label),
+            datasets: [
+              {
+                label: "Decisões",
+                data: decisionProfile.map((item) => item.total),
+                backgroundColor: ["#1f8c7f", "#e07061", "#f4b26f", "#9aa3ab"],
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: { precision: 0 },
+              },
+            },
+          },
+        });
+      }
+
+      const sourcesCanvas = document.getElementById("citationSourcesChart");
+      if (sourcesCanvas) {
+        new Chart(sourcesCanvas, {
+          type: "bar",
+          data: {
+            labels: ["Doutrina", "Legislação", "Acórdãos"],
+            datasets: [
+              {
+                label: "Citações",
+                data: [
+                  citationSources.doutrina || 0,
+                  citationSources.legislacao || 0,
+                  citationSources.acordaos || 0,
+                ],
+                backgroundColor: ["#0f6b6a", "#76b39d", "#1f8c7f"],
+              },
+            ],
+          },
+          options: {
+            indexAxis: "y",
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                beginAtZero: true,
+                ticks: { precision: 0 },
+              },
+            },
+          },
+        });
+      }
+    })();
+  </script>
 {% endblock %}

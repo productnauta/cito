@@ -344,9 +344,33 @@ button:hover {
   color: var(--muted);
 }
 
+.stat-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .stat-value {
   font-size: 28px;
   font-weight: 700;
+}
+
+.stat-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.stat-card-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.stat-card-link:hover {
+  text-decoration: none;
+  border-color: rgba(15, 107, 106, 0.4);
 }
 
 table {
