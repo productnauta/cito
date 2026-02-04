@@ -1,0 +1,48 @@
+{
+  "query": {
+    "id": 1,
+    "status": "active",
+    "query_string": "homoafetiva",
+    "inteiro_teor": "true",
+    "paging": {
+      "page": 1,
+      "page_size": 50
+    },
+    "sorting": {
+      "sort": "_score",
+      "sortBy": "desc"
+    }
+  },
+  "http": {
+  "request_delay_sec": 10.5,
+   "ssl_verify": false
+  },
+  "runtime": {
+    "headed_mode": "false",
+    "output_dir": "poc/v-a33-240125/data/html"
+  },
+  "url": {
+    "scheme": "https",
+    "netloc": "jurisprudencia.stf.jus.br",
+    "path": "/pages/search"
+  },
+  "fixed_query_params": {
+    "source": {
+      "base": "acordaos"
+    },
+    "text_search_flags": {
+      "sinonimo": "true",
+      "plural": "true",
+      "radicais": "false",
+      "buscaExata": "true"
+    },
+    "filters": {
+      "processo_classe_processual_unificada_classe_sigla": [
+        "ADC",
+        "ADI",
+        "ADO",
+        "ADPF"
+      ]
+    }
+  }
+}

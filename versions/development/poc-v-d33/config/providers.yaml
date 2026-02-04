@@ -1,0 +1,30 @@
+providers:
+  - name: mistral
+    defaults:
+      model: mistral-large-latest
+      temperature: 0
+      max_tokens: 4096
+      top_p: 1
+      request_timeout_seconds: 60
+      retries: 3
+      api_delay_seconds: 20
+    keys:
+      - name: cito-dev-a
+        key: WScxUP4UdBY6W6uq2yw7lrgfrBLphMmY
+      - name: cito-dev-b
+        key: fAuWEYS4Hw5Aw5JuLtF1PzzGMj4bubmY
+      - name: cito-dev-c
+        key: qjoXlSYRoV9frfXZjRiaicXyXfOHbckv
+
+  - name: groq
+    defaults:
+      model: llama-3.1-8b-instant
+      temperature: 0
+      max_tokens: 4096
+      top_p: 1
+      request_timeout_seconds: 60
+      retries: 3
+      api_delay_seconds: 20
+    keys:
+      - name: groq-dev-a
+        key: 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

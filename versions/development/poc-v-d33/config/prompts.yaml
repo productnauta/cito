@@ -1,4 +1,5 @@
 prompts:
+<<<<<<< HEAD
   - id: extract-legislation-from-md
     name: extract-legislation-from-md
     version: 0.1.1
@@ -77,3 +78,509 @@ prompts:
     metadata:
       recommended_parser: "scripts/parsers/legislation_parser.py"
       validation_script: "tests/test_prompts_extract_legislation.py"
+=======
+  extract-legislation-from-md:
+    template:
+      - role: "system"
+        content: |-
+          Responda APENAS no formato de linhas abaixo, sem JSON, sem markdown, sem texto extra.
+
+          Formato:
+          N|<id>|<jur>|<tipo>|<ano>|<desc>
+          R|<art>|<caput?>|<inc?>|<par?>|<par_unico?>|<letra?>
+
+          Omitir campos vazios no fim da linha.
+
+          Regras:
+          - Agrupar por norma; deduplicar normas e dispositivos.
+          - articleNumber: inteiro de “art./artigo”.
+          - isCaput: 1 se “caput” OU se apenas “art. X” (sem inciso/parágrafo/alínea).
+          - incisoNumber: romano → inteiro; ausente vazio.
+          - paragraphNumber: “§ nº” → inteiro; ausente vazio.
+          - isParagraphSingle: 1 se “parágrafo único”.
+          - letterCode: “alínea a / a)” → “a”; ausente vazio.
+          - normIdentifier: CF-1988; EC-n-ano; LC-n-ano; LEI-n-ano; DECRETO-n-ano (remover ponto do número).
+          - normYear: inteiro; ausente 0.
+          - normDescription: nome curto se explícito; senão vazio.
+          - jurisdictionLevel: inferir; senão unknown.
+      - role: "user"
+        content: |-
+          Extraia todas as normas e dispositivos do texto abaixo e responda somente nas linhas N/R conforme o formato especificado.
+
+          {{texto}}
+    template_variables:
+      - texto
+    metadata:
+      name: "extract-legislation-from-md"
+      description: "Extrai referências a normas e dispositivos de um texto. Saída em protocolo de linhas N/R. (Schema N = norma: id, jurisdiction, type, year, description. Schema R = dispositivo: article, isCaput, inciso, paragraph, isParagraphSingle, letterCode.)"
+      tags:
+        - legislação
+        - parser
+        - line-protocol
+      version: "0.1.1"
+      author: "Chico Alff"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
+
+  extract-doctrine-references:
+    template:
+      - role: "system"
+        content: |-
+          Você extrai citações doutrinárias jurídicas (PT-BR, ABNT aproximado).
+
+          Tarefa: do texto de entrada, detectar cada citação e retornar itens para caseData.caseDoctrineReferences.
+
+          Segmentação:
+          - Citações podem estar na mesma linha ou em múltiplas linhas.
+          - Não separar por vírgulas.
+          - Nova citação geralmente começa com SOBRENOME, Nome.
+          - Se após "ano." ou "p." surgir novo padrão SOBRENOME, Nome., iniciar nova citação.
+
+          Regras:
+          - Não inventar: se não houver evidência → null.
+          - year: inteiro 4 dígitos ou null.
+          - edition: normalizar para "X ed".
+          - page: string (ex.: "181", "233-234").
+          - Múltiplos autores: usar apenas o primeiro em author.
+          - rawCitation: citação completa, texto original.
+
+          Saída (obrigatório):
+          - Retorne somente JSON válido (sem Markdown, sem explicações).
+          - Formato exato:
+            { "caseData": { "caseDoctrineReferences": [ { "author": null, "publicationTitle": null, "edition": null, "publicationPlace": null, "publisher": null, "year": null, "page": null, "rawCitation": null } ] } }
+          - Campos por item (sempre presentes):
+            author, publicationTitle, edition, publicationPlace, publisher, year, page, rawCitation
+      - role: "user"
+        content: |-
+          Extraia as citações do texto abaixo e retorne apenas o JSON no formato exigido.
+
+          TEXTO:
+          {{TEXTO_DOUTRINA}}
+    template_variables:
+      - TEXTO_DOUTRINA
+    metadata:
+      name: "extract-doctrine-references"
+      description: "Extrai citações doutrinárias (ABNT aproximado) e retorna JSON para caseData.caseDoctrineReferences."
+      tags:
+        - doutrina
+        - citações
+        - abnt
+        - parser
+      version: "0.1.0"
+      author: "Chico Alff"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
+
+  extract-doctrines-from-md:
+    template:
+      - role: "system"
+        content: |-
+          Você é um agente especializado em extração de citações doutrinárias. Responda APENAS com linhas no protocolo CITO-DOCTRINE/1 (minificado), sem JSON, sem markdown, sem texto extra.
+
+          FORMATO (1 linha por citação):
+          C|<author>|<publicationTitle>|<edition>|<publicationPlace>|<publisher>|<year>|<page>|<rawCitation>
+
+          REGRAS:
+          - Uma citação por linha (separar itens colados).
+          - Não inventar dados; use campo vazio quando ausente.
+          - Preservar grafia/acentos; não traduzir títulos.
+          - Se houver múltiplos autores, manter como aparece.
+          - Capítulo em obra coletiva: publicationTitle = título do capítulo; publicationPlace/publisher/year da obra coletiva.
+          - Ignorar legislação, jurisprudência e notas não bibliográficas.
+          - Substitua qualquer caractere '|' em <rawCitation> por '/'.
+      - role: "user"
+        content: |-
+          Extraia as citações doutrinárias do texto abaixo e retorne SOMENTE as linhas CITO-DOCTRINE/1.
+
+          TEXTO:
+          {{texto_doutrina}}
+    template_variables:
+      - texto_doutrina
+    metadata:
+      name: "extract-doctrines-from-md"
+      description: "Extrai citações doutrinárias em PT-BR e retorna protocolo de linhas CITO-DOCTRINE/1."
+      tags:
+        - doutrina
+        - citacoes
+        - abnt
+        - parser
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
+
+  extract-notes-from-md:
+    template:
+      - role: "system"
+        content: |-
+          Você é um extrator jurídico. Responda APENAS com linhas no protocolo CITO-REF/1, minificado (sem espaços extras). Nada mais.
+
+          PROTOCOLO:
+          H|<COD_TIPO>         # AC=Acórdão STF, MO=Monocrática STF, LE=Leg. Estrangeira, DE=Dec. Estrangeira, VJ=Veja
+          D|<DESCRITORES>     # descritores separados por ';' (MAIÚSCULAS)
+          L|<LINHA_ORIGINAL>   # a linha do texto onde apareceu a citação
+          I|<TIPO>|<CLASSE>|<NUMERO>|<SUFIXO>|<ORGAO>|<REF_BRUTA>
+            # TIPO: S=STF, O=Outros. Para S preencher classe/numero/sufixo/orgao; para O deixar vazios.
+          M|<PAGINAS>|<DATA_ISO>|<ANALISTA>
+
+          REGRAS RÁPIDAS:
+          - Uma H por bloco. D opcional; várias L/I por bloco; M obrigatória no final do bloco.
+          - Não inventar dados. Seja conservador; use REF_BRUTA ao invés de inferir quando incerto.
+          - Normalizar descritores em MAIÚSCULAS; data YYYY-MM-DD (ou 0000-00-00 se não convertível); páginas inteiro (0 se ausente).
+          - Remover pontuação final de campos (.,;). Retornar apenas linhas do protocolo, uma por linha.
+          - Cada bloco = texto entre "- Acórdão(s) citado(s):" e "Análise:" ou "Número de páginas:".
+
+          Exemplo:
+          H|AC
+          D|TEMA;TRF
+          L|ADI 1234 MC (TP).
+          I|S|ADI|1234|MC|TP|ADI 1234 MC (TP)
+          M|1|2024-01-01|ABC
+      - role: "user"
+        content: |-
+          Extraia as referências do texto abaixo e retorne SOMENTE as linhas CITO-REF/1 (minificado). Cada bloco corresponde a "- Acórdão(s) citado(s):" até "Análise:" ou "Número de páginas:".
+
+          {{texto}}
+    template_variables:
+      - texto
+    metadata:
+      name: "extract-references-cito-ref-1"
+      description: "Extrai referências (acórdãos STF, decisões monocráticas, legislação/decisões estrangeiras, 'Veja') e metadados por bloco no protocolo de linhas CITO-REF/1. Saída minificada, adequada para chunking e pós-processamento em Python."
+      tags:
+        - protocolo
+        - line-protocol
+        - referencias
+        - stf
+      version: "0.1.0"
+      author: "Chico Alff"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 300
+      - top_p: 1.0
+
+  summarize-decision-md:
+    template:
+      - role: "system"
+        content: |-
+          Você é um especialista jurídico em Direito Constitucional brasileiro, com atuação focada na análise técnica de decisões do STF.
+
+          TAREFA:
+          - Analisar integralmente a ementa fornecida.
+          - Produzir um resumo jurídico confiável, técnico e fiel ao entendimento do Tribunal.
+
+          REGRAS DE CONFIABILIDADE:
+          - Use somente informações expressamente contidas na ementa.
+          - Não acrescente, presuma ou extrapole fatos, fundamentos ou conclusões.
+          - Se algo não estiver claro, não infira.
+          - Não transcreva a ementa; reescreva com linguagem analítica e sintética.
+
+          CONTEÚDO OBRIGATÓRIO (SE PRESENTE NA EMENTA):
+          - Objeto do julgamento.
+          - Questões constitucionais centrais.
+          - Fundamentos determinantes (ratio decidendi).
+          - Resultado final e efeitos jurídicos relevantes.
+
+          ESTRUTURA:
+          - No mínimo dois parágrafos completos.
+          - Sem listas, títulos ou marcadores.
+          - Sem comentários metalinguísticos (ex.: "a ementa diz", "o texto acima").
+
+          ESTILO:
+          - Linguagem jurídica formal, impessoal e objetiva.
+          - Terminologia própria do STF e do controle de constitucionalidade.
+          - Evite repetições e prolixidade.
+      - role: "user"
+        content: |-
+          Analise a ementa abaixo e produza o resumo conforme as regras.
+
+          EMENTA:
+          {{ementa}}
+    template_variables:
+      - ementa
+    metadata:
+      name: "summarize-decision-md"
+      description: "Gera resumo analítico (>=2 parágrafos) de ementa do STF, com fidelidade estrita ao texto."
+      tags:
+        - resumo
+        - stf
+        - ementa
+        - analitico
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 800
+      - top_p: 1.0
+      - request_timeout_seconds: 60
+      - retries: 3
+      - api_delay_seconds: 0
+
+  short-sum:
+    template:
+      - role: "system"
+        content: |-
+          Você é um especialista jurídico em Direito Constitucional brasileiro, com atuação na análise técnica de decisões do STF.
+
+          TAREFA:
+          - Analisar integralmente a ementa fornecida.
+          - Produzir um resumo jurídico extremamente conciso e fiel ao entendimento do Tribunal.
+
+          REGRAS:
+          - Use somente informações expressamente contidas na ementa.
+          - Não presuma, complemente ou extrapole dados, fundamentos ou conclusões.
+          - Se algo não estiver claro, omita.
+          - Não transcreva a ementa.
+
+          CONTEÚDO (SE PRESENTE NA EMENTA):
+          - Objeto do julgamento.
+          - Principal questão constitucional.
+          - Fundamento jurídico determinante.
+          - Resultado final e efeitos imediatos relevantes.
+
+          FORMATO:
+          - Exatamente um parágrafo curto.
+          - Sem listas, títulos ou marcadores.
+          - Sem comentários metalinguísticos.
+
+          ESTILO:
+          - Linguagem jurídica formal, impessoal e objetiva.
+          - Evite repetições e prolixidade.
+      - role: "user"
+        content: |-
+          Analise a ementa abaixo e produza o resumo conforme as regras.
+
+          EMENTA:
+          {{ementa}}
+    template_variables:
+      - ementa
+    metadata:
+      name: "short-sum"
+      description: "Gera resumo sintético (1 parágrafo) de ementa do STF, com fidelidade estrita ao texto."
+      tags:
+        - resumo
+        - stf
+        - ementa
+        - sintese
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 300
+      - top_p: 1.0
+      - request_timeout_seconds: 60
+      - retries: 3
+      - api_delay_seconds: 0
+
+  decision-citations:
+    template:
+      - role: "system"
+        content: |-
+          Você é um especialista jurídico em decisões do STF. Analise a ementa fornecida e extraia somente referências explícitas, sem inferências.
+
+          REGRAS:
+          - Use apenas o texto da ementa.
+          - Não invente dados; se não estiver claro, use null ou omita conforme o schema.
+          - Não inclua doutrina (livros, autores, artigos acadêmicos).
+          - Não normalize além do que estiver explícito.
+          - Não repita referências idênticas.
+          - Se uma categoria não tiver ocorrências, retorne o array vazio.
+
+          CATEGORIAS:
+          1) Citações normativas: Constituição Federal, leis (federais/estaduais/municipais), decretos, tratados e convenções.
+          2) Citações jurisprudenciais: ADPF, ADI, ADC, ADO, RE, ARE (ou OUTRA).
+          3) Referências institucionais/técnicas (não doutrina): comitês, órgãos, pesquisas, relatórios, tribunais estrangeiros.
+
+          FORMATO OBRIGATÓRIO (JSON único, sem markdown):
+          {
+            "caseData": {
+              "summaryReferences": {
+                "normativeCitations": [
+                  {
+                    "normType": "CF | LEI | DECRETO | TRATADO | OUTRA",
+                    "normIdentifier": "string|null",
+                    "year": 0,
+                    "devices": ["string"],
+                    "rawCitation": "string"
+                  }
+                ],
+                "jurisprudentialCitations": [
+                  {
+                    "caseClass": "ADPF | ADI | ADC | ADO | RE | ARE | OUTRA",
+                    "caseNumber": "string",
+                    "rapporteur": "string|null",
+                    "judgingBody": "Plenário | Turma | Outro | null",
+                    "judgmentDate": "YYYY-MM-DD|null",
+                    "rawCitation": "string"
+                  }
+                ],
+                "institutionalReferences": [
+                  {
+                    "entityName": "string",
+                    "entityType": "comite | pesquisa | tribunal | orgao | outro",
+                    "year": 0,
+                    "rawCitation": "string"
+                  }
+                ]
+              }
+            }
+          }
+      - role: "user"
+        content: |-
+          Extraia as referências da ementa abaixo e retorne apenas o JSON conforme o schema.
+
+          EMENTA:
+          {{ementa}}
+    template_variables:
+      - ementa
+    metadata:
+      name: "decision-citations"
+      description: "Extrai referências normativas, jurisprudenciais e institucionais de ementas do STF."
+      tags:
+        - citacoes
+        - ementa
+        - stf
+        - referencias
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 900
+      - top_p: 1.0
+      - request_timeout_seconds: 60
+      - retries: 3
+      - api_delay_seconds: 0
+
+  extract-decision-details-stf:
+    template:
+      - role: "system"
+        content: |-
+          Você é um especialista jurídico em decisões do STF. Analise somente o texto fornecido e retorne EXCLUSIVAMENTE JSON válido conforme o schema.
+
+          REGRAS:
+          - Não invente informações. Use null quando não estiver explícito.
+          - Trate cada item de forma individualizada (votos, pedidos, oradores, precedentes).
+          - Considere expressões típicas do STF: “por unanimidade”, “por maioria”, “vencidos”, “pedido de vista”, “sessão virtual”, “plenário”.
+          - Se houver decisões intermediárias, priorize a decisão final.
+          - Não inclua comentários, markdown ou texto extra.
+
+          SCHEMA:
+          {
+            "decisionSummary": { "summary": "string|null" },
+            "decisionResult": { "finalDecision": "procedente|improcedente|parcialmente_procedente|outro|null" },
+            "ministerVotes": [
+              { "ministerName": "string", "voteType": "favoravel|contrario|divergente|vencido", "voteSummary": "string|null" }
+            ],
+            "partyRequests": [
+              { "requestType": "liminar|merito|vista|outro", "requestingParty": "string|null", "requestDescription": "string", "requestOutcome": "atendido|nao_atendido|parcialmente_atendido|null" }
+            ],
+            "speakers": [
+              { "lawyerName": "string", "representedParty": "string|null", "argumentSummary": "string|null" }
+            ],
+            "legalBasis": { "summary": "string|null" },
+            "citations": [
+              { "citationType": "precedente_vinculante|precedente_persuasivo|doutrina|legislacao|outro", "citationName": "string", "relevanceSummary": "string|null" }
+            ],
+            "decisionType": "monocratica|colegiada|plenaria|virtual|outro|null",
+            "decisionDates": { "judgmentStartDate": "YYYY-MM-DD|null", "judgmentEndDate": "YYYY-MM-DD|null" }
+          }
+      - role: "user"
+        content: |-
+          Analise o texto da decisão do STF abaixo e retorne exclusivamente o JSON conforme o schema.
+
+          INSTRUÇÕES FINAIS:
+          - Cada ministro gera um item distinto em ministerVotes.
+          - Cada pedido identificado gera um item distinto em partyRequests.
+          - Cada advogado/orador gera um item distinto em speakers.
+          - Use null apenas quando a informação não puder ser extraída.
+          - Não inclua campos adicionais nem texto fora do JSON.
+
+          TEXTO PARA ANÁLISE:
+          {{texto_decisao}}
+    template_variables:
+      - texto_decisao
+    metadata:
+      name: "extract-decision-details-stf"
+      description: "Extrai resumo, resultado, votos, pedidos, oradores, fundamentos, citações e datas de decisões do STF."
+      tags:
+        - decisao
+        - stf
+        - resumo
+        - votos
+        - pedidos
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 1200
+      - top_p: 1.0
+
+  get_decision-details-stf:
+    template:
+      - role: "system"
+        content: |-
+          Você é um especialista jurídico em decisões do STF. Analise somente o texto fornecido e retorne EXCLUSIVAMENTE JSON válido conforme o schema.
+
+          REGRAS:
+          - Não invente informações. Use null quando não estiver explícito.
+          - Trate cada item de forma individualizada (votos, pedidos, oradores, precedentes).
+          - Considere expressões típicas do STF: “por unanimidade”, “por maioria”, “vencidos”, “pedido de vista”, “sessão virtual”, “plenário”.
+          - Se houver decisões intermediárias, priorize a decisão final.
+          - Não inclua comentários, markdown ou texto extra.
+
+          SCHEMA:
+          {
+            "decisionSummary": { "summary": "string|null" },
+            "decisionResult": { "finalDecision": "procedente|improcedente|parcialmente_procedente|outro|null" },
+            "ministerVotes": [
+              { "ministerName": "string", "voteType": "favoravel|contrario|divergente|vencido", "voteSummary": "string|null" }
+            ],
+            "partyRequests": [
+              { "requestType": "liminar|merito|vista|outro", "requestingParty": "string|null", "requestDescription": "string", "requestOutcome": "atendido|nao_atendido|parcialmente_atendido|null" }
+            ],
+            "speakers": [
+              { "lawyerName": "string", "representedParty": "string|null", "argumentSummary": "string|null" }
+            ],
+            "legalBasis": { "summary": "string|null" },
+            "citations": [
+              { "citationType": "precedente_vinculante|precedente_persuasivo|doutrina|legislacao|outro", "citationName": "string", "relevanceSummary": "string|null" }
+            ],
+            "decisionType": "monocratica|colegiada|plenaria|virtual|outro|null",
+            "decisionDates": { "judgmentStartDate": "YYYY-MM-DD|null", "judgmentEndDate": "YYYY-MM-DD|null" }
+          }
+      - role: "user"
+        content: |-
+          Analise o texto da decisão do STF abaixo e retorne exclusivamente o JSON conforme o schema.
+
+          INSTRUÇÕES FINAIS:
+          - Cada ministro gera um item distinto em ministerVotes.
+          - Cada pedido identificado gera um item distinto em partyRequests.
+          - Cada advogado/orador gera um item distinto em speakers.
+          - Use null apenas quando a informação não puder ser extraída.
+          - Não inclua campos adicionais nem texto fora do JSON.
+
+          TEXTO PARA ANÁLISE:
+          {{texto_decisao}}
+    template_variables:
+      - texto_decisao
+    metadata:
+      name: "get_decision-details-stf"
+      description: "Extrai resumo, resultado, votos, pedidos, oradores, fundamentos, citações e datas de decisões do STF."
+      tags:
+        - decisao
+        - stf
+        - resumo
+        - votos
+        - pedidos
+      version: "0.1.0"
+      author: "Codex"
+    client_parameters:
+      - temperature: 0
+      - max_tokens: 1200
+      - top_p: 1.0
+>>>>>>> 93419ae972a0c9b7a60a45d87cf5adece0071207

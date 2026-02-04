@@ -1,7 +1,9 @@
 pymongo
 requests
+pyyaml
 certifi
 beautifulsoup4
 markdownify
 playwright
 groq
+flask

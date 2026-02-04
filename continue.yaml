@@ -1,0 +1,8 @@
+# ---- CONTINUE – CONTEXT RULE ----
+# Inclui recursivamente **todos** os arquivos e pastas do caminho:
+#   versions/development/poc-v-d33
+# para que estejam disponíveis no “context” da extensão.
+
+context:
+  include:
+    - versions/development/poc-v-d33/**

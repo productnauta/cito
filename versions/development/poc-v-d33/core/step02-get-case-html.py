@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Fetches full case HTML from STF and stores it in case_data.caseContent.caseHtml.
-Inputs: config/mongo.json, identity.stfDecisionId, optional caseContent.caseUrl.
+Inputs: config/mongo.yaml, identity.stfDecisionId, optional caseContent.caseUrl.
 Outputs: case_data content + processing/status updates for case scrape (success/error/challenge).
 Pipeline: load case URL -> HTTP fetch (requests/playwright fallback) -> persist HTML + metadata.
 Dependencies: pymongo requests certifi
@@ -17,22 +17,20 @@ Dependencies: pymongo requests certifi
 
 from __future__ import annotations
 
-import json
 import os
 import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import certifi
 import requests
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from requests.adapters import HTTPAdapter
 from requests.exceptions import SSLError
 from urllib3.util.retry import Retry
 
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TEMPO
@@ -55,58 +53,15 @@ def log(level: str, msg: str) -> None:
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 
 COLLECTION_NAME = "case_data"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    """Carrega JSON do disco com validação mínima."""
-    if not path.exists():
-        raise FileNotFoundError(f"Arquivo de config não encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    """
-    Espera estrutura:
-      {
-        "mongo": {
-          "uri": "...",
-          "database": "..."
-        }
-      }
-    """
-    mongo = raw.get("mongo")
-    if not isinstance(mongo, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida em config/mongo.json.")
-    uri = str(mongo.get("uri") or "").strip()
-    database = str(mongo.get("database") or "").strip()
-    if not uri:
-        raise ValueError("Config inválida: 'mongo.uri' vazio.")
-    if not database:
-        raise ValueError("Config inválida: 'mongo.database' vazio.")
-    return MongoCfg(uri=uri, database=database)
-
-
 def get_collection() -> Collection:
     """Conecta no MongoDB e retorna a collection case_data."""
-    log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    raw = load_json(MONGO_CONFIG_PATH)
-    cfg = build_mongo_cfg(raw)
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{COLLECTION_NAME}'")
-    return client[cfg.database][COLLECTION_NAME]
+    return get_case_data_collection(MONGO_CONFIG_PATH, COLLECTION_NAME)
 
 
 # =============================================================================
@@ -120,6 +75,7 @@ def find_case_by_decision_id(col: Collection, stf_decision_id: str) -> Optional[
         projection={
             "_id": 1,
             "identity.stfDecisionId": 1,
+            "identity.caseUrl": 1,
             "caseTitle": 1,
             "caseContent.caseUrl": 1,
         },
@@ -389,6 +345,8 @@ def main() -> int:
     case_url = None
     if doc:
         case_url = ((doc.get("caseContent") or {}).get("caseUrl") or "").strip()
+        if not case_url:
+            case_url = ((doc.get("identity") or {}).get("caseUrl") or "").strip()
         log("OK", f"Documento encontrado | _id={doc.get('_id')} | title='{doc.get('caseTitle') or ''}'")
     else:
         log("WARN", "Documento não encontrado. Será criado via upsert (se houver URL).")

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <section class="panel">
+    <div class="panel-header">
+      <div>
+        <h1>Processos</h1>
+        <p class="panel-copy">Visualize os processos extraidos e filtre por criterios juridicos.</p>
+      </div>
+      <span class="chip">{{ total }} processos</span>
+    </div>
+    <form class="filters" method="get">
+      <label class="field">
+        <span>Titulo do processo</span>
+        <input type="text" name="title" value="{{ filters.title }}" placeholder="Ex: ADI 1234" />
+      </label>
+      <label class="field">
+        <span>Classe do processo</span>
+        <select name="case_class">
+          <option value="">Todas</option>
+          {% for cls in class_options %}
+            <option value="{{ cls }}" {% if filters.case_class == cls %}selected{% endif %}>{{ cls }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Relator</span>
+        <select name="rapporteur">
+          <option value="">Todos</option>
+          {% for r in rapporteur_options %}
+            <option value="{{ r }}" {% if filters.rapporteur == r %}selected{% endif %}>{{ r }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Data inicial</span>
+        <input type="date" name="date_start" value="{{ filters.date_start }}" />
+      </label>
+      <label class="field">
+        <span>Data final</span>
+        <input type="date" name="date_end" value="{{ filters.date_end }}" />
+      </label>
+      <label class="field">
+        <span>Autor citado</span>
+        <input list="author-suggestions" name="author" value="{{ filters.author }}" placeholder="Ex: CANOTILHO" />
+        <datalist id="author-suggestions">
+          {% for a in author_suggestions %}
+            <option value="{{ a }}"></option>
+          {% endfor %}
+        </datalist>
+      </label>
+      <div class="actions">
+        <button type="submit">Aplicar filtros</button>
+        <a class="secondary" href="{{ url_for('processos') }}">Limpar</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    {% if processes %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Titulo do processo</th>
+            <th>Classe</th>
+            <th>Relator</th>
+            <th>Data de julgamento</th>
+            <th>Doutrinas</th>
+            <th>Detalhes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in processes %}
+            <tr>
+              <td>{{ row.case_title }}</td>
+              <td>{{ row.case_class }}</td>
+              <td>{{ row.rapporteur }}</td>
+              <td>{{ row.judgment_date }}</td>
+              <td>{{ row.doctrine_count }}</td>
+              <td><a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">Abrir</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if show_more %}
+        <div class="actions">
+          <a class="secondary" href="{{ url_for('processos', limit=next_limit, **filter_params) }}">Ver mais</a>
+        </div>
+      {% endif %}
+    {% else %}
+      <p class="empty">Nenhum processo encontrado para os filtros atuais.</p>
+    {% endif %}
+  </section>
+{% endblock %}

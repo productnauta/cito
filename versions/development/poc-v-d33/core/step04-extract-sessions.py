@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Extracts case sections from clean HTML and generates raw HTML and Markdown per section.
-Inputs: config/mongo.json, case_data.caseContent.caseHtmlClean.
+Inputs: config/mongo.yaml, case_data.caseContent.caseHtmlClean.
 Outputs: caseContent.raw.* and caseContent.md.* fields; processing/status updates.
 Pipeline: parse clean HTML -> sanitize fragments -> convert to Markdown -> persist sections.
 Dependencies: pymongo beautifulsoup4 markdownify
@@ -17,20 +17,18 @@ Dependencies: pymongo beautifulsoup4 markdownify
 
 from __future__ import annotations
 
-import json
 import re
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TIME
@@ -53,52 +51,14 @@ def log(level: str, msg: str) -> None:
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 
 CASE_DATA_COLLECTION = "case_data"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Config nao encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    m = raw.get("mongo")
-    if not isinstance(m, dict):
-        raise ValueError("Config invalida: chave 'mongo' ausente ou invalida.")
-
-    uri = str(m.get("uri") or "").strip()
-    db = str(m.get("database") or "").strip()
-    if not uri:
-        raise ValueError("Config invalida: 'mongo.uri' vazio.")
-    if not db:
-        raise ValueError("Config invalida: 'mongo.database' vazio.")
-
-    return MongoCfg(uri=uri, database=db)
-
-
-def get_case_data_collection() -> Collection:
-    log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    raw = load_json(MONGO_CONFIG_PATH)
-    cfg = build_mongo_cfg(raw)
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-
-    log("STEP", "Validando conexao (ping)")
-    client.admin.command("ping")
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{CASE_DATA_COLLECTION}'")
-    return client[cfg.database][CASE_DATA_COLLECTION]
+def get_case_data_collection_local() -> Collection:
+    return get_case_data_collection(MONGO_CONFIG_PATH, CASE_DATA_COLLECTION)
 
 
 # =============================================================================
@@ -332,6 +292,7 @@ def persist_success(col: Collection, doc_id: Any, *, update_fields: Dict[str, An
         "processing.caseSectionsExtractedAt": utc_now(),
         "processing.caseSectionsError": None,
         "processing.caseSectionsMeta": meta,
+        "processing.caseSectionsStatus": "success",
         "processing.pipelineStatus": "caseSectionsExtracted",
         "audit.updatedAt": utc_now(),
         "audit.lastSectionsExtractedAt": utc_now(),
@@ -347,6 +308,7 @@ def persist_error(col: Collection, doc_id: Any, *, err: str) -> None:
         {"$set": {
             "processing.caseSectionsExtractedAt": utc_now(),
             "processing.caseSectionsError": err,
+            "processing.caseSectionsStatus": "error",
             "processing.pipelineStatus": "caseSectionsExtractError",
             "audit.updatedAt": utc_now(),
         }},
@@ -357,27 +319,15 @@ def persist_error(col: Collection, doc_id: Any, *, err: str) -> None:
 # 5) MAIN
 # =============================================================================
 
-def _prompt_mode() -> Tuple[str, Optional[str]]:
+def _prompt_case_id() -> str:
     """
-    Pergunta ao usuario o modo de execucao.
-    Retorna (mode, stf_decision_id).
-    mode in {"all", "one"}
+    Solicita o stfDecisionId.
     """
-    print("\nSelecione o modo de execucao:")
-    print("  1) Processar TODOS com status.pipelineStatus = caseHtmlCleaned")
-    print("  2) Processar APENAS um documento por stfDecisionId")
-
     while True:
-        choice = input("Opcao (1/2): ").strip()
-        if choice == "1":
-            return "all", None
-        if choice == "2":
-            stf_decision_id = input("Informe o stfDecisionId: ").strip()
-            if stf_decision_id:
-                return "one", stf_decision_id
-            print("stfDecisionId vazio. Tente novamente.")
-        else:
-            print("Opcao invalida. Use 1 ou 2.")
+        stf_decision_id = input("Informe o stfDecisionId: ").strip()
+        if stf_decision_id:
+            return stf_decision_id
+        print("stfDecisionId vazio. Tente novamente.")
 
 
 def _log_doc_header(doc: Dict[str, Any]) -> None:
@@ -433,40 +383,12 @@ def main() -> int:
     log("INFO", "Iniciando etapa: EXTRAIR SECOES DO PROCESSO (caseHtmlClean) -> raw/md")
 
     try:
-        col = get_case_data_collection()
+        col = get_case_data_collection_local()
     except Exception as e:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1
 
-    mode, stf_decision_id = _prompt_mode()
-
-    if mode == "all":
-        base_filter: Dict[str, Any] = {"status.pipelineStatus": "caseHtmlCleaned"}
-        log("STEP", "Buscando documentos com status.pipelineStatus = caseHtmlCleaned")
-        try:
-            cursor = col.find(
-                base_filter,
-                projection={
-                    "caseContent.caseHtmlClean": 1,
-                    "identity.stfDecisionId": 1,
-                    "caseTitle": 1,
-                    "status.pipelineStatus": 1,
-                },
-            )
-        except PyMongoError as e:
-            log("ERROR", f"Erro ao consultar documentos: {e}")
-            return 1
-
-        total = 0
-        ok = 0
-        for doc in cursor:
-            total += 1
-            _log_doc_header(doc)
-            if process_document(col, doc):
-                ok += 1
-
-        log("INFO", f"Finalizado | total={total} | ok={ok} | erro={total - ok}")
-        return 0 if total == ok else 1
+    stf_decision_id = _prompt_case_id()
 
     log("STEP", f"Buscando documento por identity.stfDecisionId='{stf_decision_id}'")
     try:

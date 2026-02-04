@@ -1,0 +1,58 @@
+pipeline:
+  name: pipeline-02-09
+  enabled: true
+  mode:
+    # one | all
+    run_mode: all
+    # used when run_mode=one
+    stf_decision_id: null
+    # used when run_mode=all
+    filter:
+      processing_pipeline_status: extracted
+  execution:
+    steps:
+      - script: step02-get-case-html.py
+        enabled: true
+        input_format: "{stfDecisionId}\n{caseUrl}\n"
+      - script: step03-clean-case-html.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step04-extract-sessions.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step05-extract-keywords-parties.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step06-extract-legislation-mistral.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step07-extract-notes-mistral.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step08-doctrine-mistral.py
+        enabled: true
+        input_format: "{stfDecisionId}\n"
+      - script: step09-extract-decision-details-mistral.py
+        enabled: false
+        input_format: "{stfDecisionId}\n"
+    delay_between_steps_seconds: 2.0
+    delay_between_items_seconds: 10.0
+    continue_on_error: true
+    stop_on_error: false
+  runtime:
+    python_bin: python3
+    cwd: versions/development/poc-v-d33/core
+    case_url_override: null
+  logging:
+    enabled: true
+    log_dir: versions/development/poc-v-d33/core/logs
+    log_file: pipeline-02-09.log
+    level: info
+  mongo:
+    collection: case_data
+  output:
+    persist_html_to_disk: true
+    output_dir: versions/development/poc-v-d33/core/data/html
+  diagnostics:
+    print_step_rc: true
+    print_timing: true

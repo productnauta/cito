@@ -1,0 +1,11 @@
+{
+  "mongo": {
+    "user": "cito",
+    "password": "fyu9WxkHakGKHeoq",
+    "uri": "mongodb+srv://cito:fyu9WxkHakGKHeoq@cluster0.gb8bzlp.mongodb.net/?appName=Cluster0",
+    "database": "cito-v-a33-240125",
+    "mongo_uri": "mongodb+srv://USER:PASSWORD@cluster.mongodb.net/?retryWrites=true&w=majority",
+    "db_name": "cito-v-a33-240125",
+    "collection": "case_data"
+  }
+}

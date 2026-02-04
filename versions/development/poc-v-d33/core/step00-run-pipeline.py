@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Orchestrates the pipeline for case_data documents missing processing.caseScrapeStatus.
-Inputs: Mongo config (config/mongo.json), case_data records, optional case URL override.
+Inputs: Mongo config (config/mongo.yaml), case_data records, optional case URL override.
 Outputs: Executes steps 02-08, logs progress, and relies on each step to persist results.
 Pipeline: get case HTML -> clean HTML -> extract sections -> parties/keywords -> legislation -> notes -> doctrine.
 Dependencies: pymongo
@@ -18,42 +18,63 @@ Dependencies: pymongo
 from __future__ import annotations
 
 import argparse
-import json
-import time
 import subprocess
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-from pymongo import MongoClient
+from utils.mongo import get_case_data_collection
 
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 # Delay entre execuções de stfDecisionId (em segundos).
 DELAY_BETWEEN_ITEMS_SECONDS = 10.0
 
+# Logs
+LOG_DIR = BASE_DIR / "logs"
+LOG_FILE_PATH: Path | None = None
+LOG_TO_FILE = True
 
-def _load_json(path: Path) -> Dict[str, Any]:
-    # Carrega JSON do disco com validação mínima.
-    if not path.exists():
-        raise FileNotFoundError(f"Config não encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
+
+def _ts() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _init_log_file() -> None:
+    global LOG_FILE_PATH
+    if LOG_FILE_PATH is not None:
+        return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    LOG_FILE_PATH = LOG_DIR / f"pipeline-{stamp}.log"
+
+
+def _write_log_file(text: str) -> None:
+    if not LOG_TO_FILE:
+        return
+    if LOG_FILE_PATH is None:
+        _init_log_file()
+    try:
+        with LOG_FILE_PATH.open("a", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        # Evita quebrar o pipeline caso falhe escrita em disco
+        pass
+
+
+def log(msg: str) -> None:
+    line = f"[{_ts()}] {msg}"
+    print(line)
+    _write_log_file(line + "\n")
 
 
 def _get_case_data_collection():
-    # Conecta ao MongoDB usando config/mongo.json e retorna a collection case_data.
-    raw = _load_json(MONGO_CONFIG_PATH)
-    mongo = raw.get("mongo")
-    if not isinstance(mongo, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida.")
-    uri = str(mongo.get("uri") or "").strip()
-    database = str(mongo.get("database") or "").strip()
-    if not uri or not database:
-        raise ValueError("Config inválida: 'mongo.uri' ou 'mongo.database' vazio.")
-    client = MongoClient(uri)
-    return client[database]["case_data"]
+    # Conecta ao MongoDB usando config/mongo.yaml e retorna a collection case_data.
+    return get_case_data_collection(MONGO_CONFIG_PATH, "case_data")
 
 
 def _run_step(script: str, input_text: str) -> int:
@@ -69,6 +90,7 @@ def _run_step(script: str, input_text: str) -> int:
 
 
 def main() -> int:
+    _init_log_file()
     parser = argparse.ArgumentParser(description="Executa o pipeline por stfDecisionId.")
     parser.add_argument(
         "--case-url",
@@ -84,11 +106,11 @@ def main() -> int:
     case_url = (args.case_url or "").strip()
 
     # 1) Conectar no MongoDB e localizar documentos sem processing.caseScrapeStatus
-    print("[INFO] Conectando ao MongoDB...")
+    log("[INFO] Conectando ao MongoDB...")
     try:
         col = _get_case_data_collection()
     except Exception as e:
-        print(f"[ERRO] Falha ao conectar no MongoDB: {e}")
+        log(f"[ERRO] Falha ao conectar no MongoDB: {e}")
         return 1
 
     # 2) Query: documentos com processing.caseScrapeStatus ausente/nulo/vazio
@@ -101,49 +123,49 @@ def main() -> int:
     }
     projection = {"identity.stfDecisionId": 1}
 
-    print("[INFO] Buscando documentos sem processing.caseScrapeStatus...")
+    log("[INFO] Buscando documentos sem processing.caseScrapeStatus...")
     docs = list(col.find(query, projection=projection))
     if not docs:
-        print("[INFO] Nenhum documento encontrado para processar.")
+        log("[INFO] Nenhum documento encontrado para processar.")
         return 0
 
     # 3) Para cada documento encontrado, executar os steps em sequência
     total = len(docs)
-    print(f"[INFO] Total encontrado: {total}")
+    log(f"[INFO] Total encontrado: {total}")
 
     for idx, doc in enumerate(docs, start=1):
         stf_decision_id = ((doc.get("identity") or {}).get("stfDecisionId") or "").strip()
         if not stf_decision_id:
-            print(f"[WARN] Registro sem identity.stfDecisionId (pos {idx}/{total}). Ignorando.")
+            log(f"[WARN] Registro sem identity.stfDecisionId (pos {idx}/{total}). Ignorando.")
             continue
 
-        print(f"\n[INFO] ({idx}/{total}) Processando stfDecisionId={stf_decision_id}")
+        log(f"[INFO] ({idx}/{total}) Processando stfDecisionId={stf_decision_id}")
 
         steps = [
             ("step02-get-case-html.py", f"{stf_decision_id}\n{case_url}\n" if case_url else f"{stf_decision_id}\n"),
-            ("step03-clean-case-html.py", f"2\n{stf_decision_id}\n"),
-            ("step04-extract-sessions.py", f"2\n{stf_decision_id}\n"),
+            ("step03-clean-case-html.py", f"{stf_decision_id}\n"),
+            ("step04-extract-sessions.py", f"{stf_decision_id}\n"),
             ("step05-extract-keywords-parties.py", f"{stf_decision_id}\n"),
-            ("step06-extract-legislation-groq.py", f"{stf_decision_id}\n"),
-            ("step07-extract-notes-groq.py", f"{stf_decision_id}\n"),
-            ("step08-doctrine-legislation-ai.py", f"{stf_decision_id}\n"),
+            ("step06-extract-legislation-mistral.py", f"{stf_decision_id}\n"),
+            ("step07-extract-notes-mistral.py", f"{stf_decision_id}\n"),
+            ("step08-doctrine-mistral.py", f"{stf_decision_id}\n"),
         ]
 
         for script, input_text in steps:
-            print(f"[INFO] Executando: {script}")
+            log(f"[INFO] Executando: {script}")
             rc = _run_step(script, input_text)
             if rc != 0:
-                print(f"[ERRO] {script} retornou código {rc}")
+                log(f"[ERRO] {script} retornou código {rc}")
             else:
-                print(f"[OK] {script}")
+                log(f"[OK] {script}")
         # Mesmo com falhas em steps individuais, seguimos com o próximo step e depois com o próximo registro.
 
         # Aguarda antes de iniciar o próximo item (rate limit simples).
         if idx < total and DELAY_BETWEEN_ITEMS_SECONDS > 0:
-            print(f"[INFO] Aguardando {DELAY_BETWEEN_ITEMS_SECONDS}s antes do próximo item...")
+            log(f"[INFO] Aguardando {DELAY_BETWEEN_ITEMS_SECONDS}s antes do próximo item...")
             time.sleep(DELAY_BETWEEN_ITEMS_SECONDS)
 
-    print("[INFO] Pipeline finalizado.")
+    log("[INFO] Pipeline finalizado.")
     return 0
 
 

@@ -7,7 +7,7 @@ Version: poc-v-d33      Date: 2024-05-20 (data de criação/versionamento)
 Author:  Chico Alff     Rep: https://github.com/pigmeu-labs/cito
 -----------------------------------------------------------------------------------------------------
 Description: Extracts parties and keywords from Markdown sections into structured caseData fields.
-Inputs: config/mongo.json, caseContent.md.parties, caseContent.md.keywords.
+Inputs: config/mongo.yaml, caseContent.md.parties, caseContent.md.keywords.
 Outputs: caseData.caseParties and caseData.caseKeywords; processing/status updates.
 Pipeline: parse parties -> parse keywords -> persist structured fields.
 Dependencies: pymongo
@@ -17,18 +17,16 @@ Dependencies: pymongo
 
 from __future__ import annotations
 
-import json
 import re
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from utils.mongo import get_case_data_collection
 
 # =============================================================================
 # 0) LOG / TIME
@@ -51,8 +49,8 @@ def log(level: str, msg: str) -> None:
 # =============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
-CONFIG_DIR = BASE_DIR / "config"
-MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.json"
+CONFIG_DIR = BASE_DIR.parent / "config"
+MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
 
 CASE_DATA_COLLECTION = "case_data"
 
@@ -60,42 +58,8 @@ OUTPUT_PIPELINE_STATUS = "casePartiesKeywordsExtracted"
 ERROR_PIPELINE_STATUS = "casePartiesKeywordsExtractError"
 
 
-@dataclass(frozen=True)
-class MongoCfg:
-    uri: str
-    database: str
-
-
-def load_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"Config não encontrado: {path.resolve()}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def build_mongo_cfg(raw: Dict[str, Any]) -> MongoCfg:
-    m = raw.get("mongo")
-    if not isinstance(m, dict):
-        raise ValueError("Config inválida: chave 'mongo' ausente ou inválida.")
-
-    uri = str(m.get("uri") or "").strip()
-    db = str(m.get("database") or "").strip()
-
-    if not uri or not db:
-        raise ValueError("Config inválida: 'mongo.uri' ou 'mongo.database' vazio.")
-
-    return MongoCfg(uri=uri, database=db)
-
-
-def get_case_data_collection() -> Collection:
-    log("STEP", f"Lendo config MongoDB: {MONGO_CONFIG_PATH.resolve()}")
-    cfg = build_mongo_cfg(load_json(MONGO_CONFIG_PATH))
-
-    log("STEP", "Conectando ao MongoDB")
-    client = MongoClient(cfg.uri)
-    client.admin.command("ping")
-
-    log("OK", f"MongoDB OK | db='{cfg.database}' | collection='{CASE_DATA_COLLECTION}'")
-    return client[cfg.database][CASE_DATA_COLLECTION]
+def get_case_data_collection_local() -> Collection:
+    return get_case_data_collection(MONGO_CONFIG_PATH, CASE_DATA_COLLECTION)
 
 
 # =============================================================================
@@ -199,6 +163,7 @@ def process_document(col: Collection, stf_decision_id: str) -> int:
             "partiesCount": len(parties),
             "keywordsCount": len(keywords),
         },
+        "processing.partiesKeywordsStatus": "success",
         "processing.pipelineStatus": OUTPUT_PIPELINE_STATUS,
         "audit.updatedAt": utc_now(),
         "status.pipelineStatus": OUTPUT_PIPELINE_STATUS,
@@ -219,7 +184,7 @@ def main() -> int:
     log("INFO", "ETAPA: EXTRAIR PARTES ENVOLVIDAS E PALAVRAS-CHAVE")
 
     try:
-        col = get_case_data_collection()
+        col = get_case_data_collection_local()
     except Exception as e:
         log("ERROR", f"Falha ao conectar no MongoDB: {e}")
         return 1
@@ -237,6 +202,7 @@ def main() -> int:
             {"identity.stfDecisionId": stf_decision_id},
             {"$set": {
                 "processing.pipelineStatus": ERROR_PIPELINE_STATUS,
+                "processing.partiesKeywordsStatus": "error",
                 "status.pipelineStatus": ERROR_PIPELINE_STATUS,
                 "status.error": str(e),
                 "status.updatedAt": utc_now(),

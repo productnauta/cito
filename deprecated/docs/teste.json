@@ -1,0 +1,22 @@
+{
+    "caseData": {
+        "notes": [
+            {
+                "noteType":str,
+                "descriptors": [str
+                ],
+                "rawLine":str,
+                "items": [
+                    {
+                        "itemType":str,
+                        "caseClass":str|null,
+                        "caseNumber":str|null,
+                        "suffix":str|null,
+                        "orgTag":str|null,
+                        "rawRef":str
+                    }
+                ]
+            }
+        ]
+    }
+}
