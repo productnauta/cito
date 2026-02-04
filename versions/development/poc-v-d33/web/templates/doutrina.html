@@ -70,6 +70,7 @@
           —
         {% endif %}
       </p>
+      <small class="card-meta trend {{ citations_trend_class }}">Tendencia: {{ citations_trend_label }}</small>
     </article>
     <article class="card">
       <h3>Doutrinas Mais Citadas</h3>
@@ -168,6 +169,59 @@
       </div>
       <canvas id="casesByYearChart"></canvas>
     </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>Doutrina vs Legislacao</h2>
+      </div>
+      {% if citation_ratio %}
+        <canvas id="citationRatioChart"></canvas>
+      {% else %}
+        <p class="empty">Sem dados de citacoes para o recorte atual.</p>
+      {% endif %}
+    </article>
+    <article class="chart-card">
+      <div class="panel-header">
+        <h2>Obras mais influentes ao longo do tempo</h2>
+      </div>
+      {% if top_titles_series.years %}
+        <canvas id="topWorksChart"></canvas>
+      {% else %}
+        <p class="empty">Sem dados suficientes para o periodo.</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Autor x Ministro</h2>
+      <span class="chip">Top autores e relatores</span>
+    </div>
+    {% if heatmap.rows %}
+      <div class="heatmap-wrapper">
+        <table class="heatmap">
+          <thead>
+            <tr>
+              <th>Autor</th>
+              {% for minister in heatmap.ministers %}
+                <th>{{ minister }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in heatmap.rows %}
+              <tr>
+                <td class="heatmap-label">{{ row.author }}</td>
+                {% for cell in row.cells %}
+                  <td class="heat-cell heat-{{ cell.level }}">{{ cell.count }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="empty">Sem dados suficientes para compor o heatmap.</p>
+    {% endif %}
   </section>
 
   <section class="grid">
@@ -291,6 +345,9 @@
     const decisionValues = {{ chart_decision_values|tojson }};
     const yearLabels = {{ chart_year_labels|tojson }};
     const yearValues = {{ chart_year_values|tojson }};
+    const citationRatio = {{ citation_ratio|tojson }};
+    const topWorksYears = {{ top_titles_series.years|tojson }};
+    const topWorksSeries = {{ top_titles_series.series|tojson }};
 
     if (typeof Chart !== "undefined") {
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
@@ -361,6 +418,58 @@
                 fill: true
               }
             ]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      }
+
+      const ratioCanvas = document.getElementById("citationRatioChart");
+      if (ratioCanvas && citationRatio) {
+        new Chart(ratioCanvas, {
+          type: "doughnut",
+          data: {
+            labels: ["Doutrina", "Legislacao"],
+            datasets: [
+              {
+                data: [citationRatio.doutrina || 0, citationRatio.legislacao || 0],
+                backgroundColor: ["rgba(15, 107, 106, 0.7)", "rgba(118, 179, 157, 0.7)"],
+                borderWidth: 0
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            cutout: "62%"
+          }
+        });
+      }
+
+      const worksCanvas = document.getElementById("topWorksChart");
+      if (worksCanvas && topWorksYears.length && topWorksSeries.length) {
+        const palette = [
+          "rgba(15, 107, 106, 0.8)",
+          "rgba(31, 140, 127, 0.8)",
+          "rgba(118, 179, 157, 0.8)",
+          "rgba(239, 203, 155, 0.8)",
+          "rgba(224, 112, 97, 0.8)"
+        ];
+        new Chart(worksCanvas, {
+          type: "line",
+          data: {
+            labels: topWorksYears,
+            datasets: topWorksSeries.map((series, idx) => ({
+              label: series.label,
+              data: series.data,
+              borderColor: palette[idx % palette.length],
+              backgroundColor: "rgba(15, 107, 106, 0.1)",
+              tension: 0.3,
+              fill: false
+            }))
           },
           options: {
             responsive: true,

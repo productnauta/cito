@@ -307,6 +307,24 @@ button:hover {
   font-size: 12px;
 }
 
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trend.up {
+  color: #1f7a46;
+}
+
+.trend.down {
+  color: #b9382a;
+}
+
+.trend.flat {
+  color: var(--muted);
+}
+
 .card-list {
   margin: 0;
   padding-left: 18px;
@@ -390,6 +408,60 @@ table {
   border-collapse: collapse;
   margin-top: 16px;
   font-size: 14px;
+}
+
+.heatmap-wrapper {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.heatmap {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.heatmap th,
+.heatmap td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.heatmap-label {
+  text-align: left;
+  font-weight: 600;
+}
+
+.heat-cell {
+  min-width: 48px;
+  border-radius: 8px;
+}
+
+.heat-0 {
+  background: #f7f3ea;
+  color: #8a8a8f;
+}
+
+.heat-1 {
+  background: #e4f4f1;
+  color: #0f5b57;
+}
+
+.heat-2 {
+  background: #cfeae4;
+  color: #0f5b57;
+}
+
+.heat-3 {
+  background: #b4ddd6;
+  color: #0f5b57;
+}
+
+.heat-4 {
+  background: #8ccfc2;
+  color: #0f5b57;
 }
 
 thead {

@@ -748,6 +748,64 @@ def _calculate_case_trend(year_counts: List[Dict[str, Any]]) -> Optional[Dict[st
     return {"year": year_counts[-1].get("year"), "change": change}
 
 
+def _aggregate_citations_per_case_by_year(
+    collection: Collection, match: Dict[str, Any], allowed_types: List[str]
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$match": {"dates.judgmentDate": {"$type": "date"}}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_year": {"$year": "$dates.judgmentDate"},
+                "_citationsCount": _citations_count_expr(allowed_types),
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_year",
+                "total_citations": {"$sum": "$_citationsCount"},
+                "total_cases": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$project": {
+                "_id": 0,
+                "year": "$_id",
+                "total_citations": 1,
+                "total_cases": 1,
+            }
+        }
+    )
+    pipeline.append({"$sort": {"year": 1}})
+    rows = list(collection.aggregate(pipeline))
+    for row in rows:
+        total_cases = int(row.get("total_cases") or 0)
+        total_citations = int(row.get("total_citations") or 0)
+        row["avg"] = (total_citations / total_cases) if total_cases else None
+    return rows
+
+
+def _calculate_citation_trend(
+    year_stats: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    if len(year_stats) < 2:
+        return None
+    prev = year_stats[-2]
+    last = year_stats[-1]
+    prev_avg = prev.get("avg")
+    last_avg = last.get("avg")
+    if prev_avg is None or last_avg is None or prev_avg == 0:
+        return None
+    change = ((last_avg - prev_avg) / prev_avg) * 100
+    return {"year": last.get("year"), "prev_year": prev.get("year"), "change": change}
+
+
 def _aggregate_decision_distribution(
     collection: Collection, match: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
@@ -875,6 +933,164 @@ def _aggregate_top_doctrine_titles(
     if limit:
         pipeline.append({"$limit": limit})
     return list(collection.aggregate(pipeline))
+
+
+def _aggregate_top_doctrine_titles_timeseries(
+    collection: Collection, match: Dict[str, Any], limit: int = 5
+) -> Dict[str, Any]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$match": {"dates.judgmentDate": {"$type": "date"}}})
+    pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
+    pipeline.append({"$match": {f"{DOCTRINE_PATH}.publicationTitle": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {
+                    "title": f"${DOCTRINE_PATH}.publicationTitle",
+                    "year": {"$year": "$dates.judgmentDate"},
+                },
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$project": {
+                "_id": 0,
+                "title": "$_id.title",
+                "year": "$_id.year",
+                "total": 1,
+            }
+        }
+    )
+    rows = list(collection.aggregate(pipeline))
+    if not rows:
+        return {"years": [], "series": []}
+
+    from collections import Counter
+
+    totals: Counter[str] = Counter()
+    for row in rows:
+        totals[str(row.get("title") or "")] += int(row.get("total") or 0)
+
+    top_titles = sorted(totals.items(), key=lambda x: (-x[1], x[0]))
+    top_titles = [title for title, _ in top_titles[:limit]]
+    years = sorted({int(row.get("year")) for row in rows if row.get("year")})
+    year_index = {year: idx for idx, year in enumerate(years)}
+    series_map = {title: [0 for _ in years] for title in top_titles}
+
+    for row in rows:
+        title = str(row.get("title") or "")
+        year = row.get("year")
+        if title in series_map and year in year_index:
+            series_map[title][year_index[year]] += int(row.get("total") or 0)
+
+    series = [{"label": title, "data": series_map[title]} for title in top_titles]
+    return {"years": years, "series": series}
+
+
+def _aggregate_author_minister_heatmap(
+    collection: Collection,
+    match: Dict[str, Any],
+    author_limit: int = 10,
+    minister_limit: int = 10,
+) -> Dict[str, Any]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
+    pipeline.append({"$match": {f"{DOCTRINE_PATH}.author": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                }
+            }
+        }
+    )
+    pipeline.append({"$match": {"_rapporteur": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {"author": f"${DOCTRINE_PATH}.author", "rapporteur": "$_rapporteur"},
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$project": {
+                "_id": 0,
+                "author": "$_id.author",
+                "rapporteur": "$_id.rapporteur",
+                "total": 1,
+            }
+        }
+    )
+    rows = list(collection.aggregate(pipeline))
+    if not rows:
+        return {"authors": [], "ministers": [], "rows": [], "max": 0}
+
+    from collections import Counter
+
+    merged: Dict[Tuple[str, str], int] = {}
+    for row in rows:
+        author = str(row.get("author") or "").strip()
+        rapporteur_raw = str(row.get("rapporteur") or "").strip()
+        rapporteur = normalize_minister_name(rapporteur_raw) or rapporteur_raw
+        if not author or not rapporteur:
+            continue
+        key = (author, rapporteur)
+        merged[key] = merged.get(key, 0) + int(row.get("total") or 0)
+
+    author_totals: Counter[str] = Counter()
+    minister_totals: Counter[str] = Counter()
+    for (author, rapporteur), total in merged.items():
+        author_totals[author] += total
+        minister_totals[rapporteur] += total
+
+    top_authors = sorted(author_totals.items(), key=lambda x: (-x[1], x[0]))[:author_limit]
+    top_ministers = sorted(minister_totals.items(), key=lambda x: (-x[1], x[0]))[:minister_limit]
+    author_labels = [a for a, _ in top_authors]
+    minister_labels = [m for m, _ in top_ministers]
+
+    max_count = 0
+    matrix_rows = []
+    for author in author_labels:
+        row_cells = []
+        for minister in minister_labels:
+            count = int(merged.get((author, minister), 0))
+            max_count = max(max_count, count)
+            row_cells.append({"count": count})
+        matrix_rows.append({"author": author, "cells": row_cells})
+
+    def _heat_level(value: int, max_value: int) -> int:
+        if max_value <= 0:
+            return 0
+        ratio = value / max_value
+        if ratio >= 0.8:
+            return 4
+        if ratio >= 0.6:
+            return 3
+        if ratio >= 0.4:
+            return 2
+        if ratio >= 0.2:
+            return 1
+        return 0
+
+    for row in matrix_rows:
+        for cell in row["cells"]:
+            cell["level"] = _heat_level(cell["count"], max_count)
+
+    return {
+        "authors": author_labels,
+        "ministers": minister_labels,
+        "rows": matrix_rows,
+        "max": max_count,
+    }
 
 
 def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
@@ -2414,12 +2630,18 @@ def doutrina() -> Any:
     top_doctrine_titles = _aggregate_top_doctrine_titles(collection, base_match, limit=3)
     top_cases_by_doctrine = _aggregate_top_cases_by_doctrine(collection, base_match, limit=3)
     avg_citations = _aggregate_avg_citations(collection, base_match, citation_types_all)
+    citations_by_year = _aggregate_citations_per_case_by_year(
+        collection, base_match, citation_types_all
+    )
+    citations_trend = _calculate_citation_trend(citations_by_year)
     vote_vencido_rate = _aggregate_vote_vencido_rate(collection, base_match)
     decision_distribution = _aggregate_decision_distribution(collection, base_match)
     citation_ratio = _aggregate_citation_ratio(collection, base_match)
     cases_by_year = _aggregate_cases_by_year(collection, base_match)
     cases_per_year_avg = _calculate_cases_per_year_avg(cases_by_year)
     case_trend = _calculate_case_trend(cases_by_year)
+    top_titles_series = _aggregate_top_doctrine_titles_timeseries(collection, base_match, limit=5)
+    heatmap = _aggregate_author_minister_heatmap(collection, base_match, author_limit=10, minister_limit=10)
 
     total_decisions = sum(item.get("total", 0) for item in decision_distribution)
     decision_distribution_pct = []
@@ -2440,6 +2662,17 @@ def doutrina() -> Any:
         if change is not None and year_label is not None:
             sign = "+" if change >= 0 else ""
             case_trend_label = f"{sign}{change:.1f}% em {year_label}"
+
+    citations_trend_label = "—"
+    citations_trend_class = ""
+    if citations_trend:
+        change = citations_trend.get("change")
+        prev_year = citations_trend.get("prev_year")
+        if change is not None and prev_year is not None:
+            sign = "+" if change >= 0 else ""
+            arrow = "↑" if change > 0 else ("↓" if change < 0 else "→")
+            citations_trend_label = f"{arrow} {sign}{change:.1f}% vs {prev_year}"
+            citations_trend_class = "up" if change > 0 else ("down" if change < 0 else "flat")
 
     filter_params = {k: v for k, v in filters.items() if v}
     next_author_limit = author_limit + 50
@@ -2463,11 +2696,15 @@ def doutrina() -> Any:
         top_doctrine_titles=top_doctrine_titles,
         top_cases_by_doctrine=top_cases_by_doctrine,
         avg_citations=avg_citations,
+        citations_trend_label=citations_trend_label,
+        citations_trend_class=citations_trend_class,
         vote_vencido_rate=vote_vencido_rate,
         decision_distribution_pct=decision_distribution_pct,
         citation_ratio=citation_ratio,
         cases_per_year_avg=cases_per_year_avg,
         case_trend_label=case_trend_label,
+        top_titles_series=top_titles_series,
+        heatmap=heatmap,
         chart_minister_labels=[row["label"] for row in rapporteurs[:10]],
         chart_minister_values=[row["total"] for row in rapporteurs[:10]],
         chart_decision_labels=[row["label"] for row in decision_distribution_pct],
