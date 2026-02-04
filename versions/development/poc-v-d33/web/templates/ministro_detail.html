@@ -15,11 +15,15 @@
 
   <section class="stats-grid">
     <article class="panel stat-card">
-      <span class="stat-label">{{ labels.total_processes }}</span>
+      <span class="stat-label" title="Total de processos em que o ministro atuou no recorte atual.">
+        {{ labels.total_processes }}
+      </span>
       <strong class="stat-value">{{ total_processes }}</strong>
     </article>
     <article class="panel stat-card">
-      <span class="stat-label">{{ labels.total_relatorias }}</span>
+      <span class="stat-label" title="Total de processos em que o ministro foi relator no recorte atual.">
+        {{ labels.total_relatorias }}
+      </span>
       <strong class="stat-value">
         <a href="{{ url_for('processos', rapporteur=minister_name) }}">{{ total_relatorias }}</a>
       </strong>
@@ -28,12 +32,16 @@
       class="panel stat-card stat-card-link"
       href="{{ url_for('processos', rapporteur=minister_name, citations_made=1, **process_filter_params) }}"
     >
-      <span class="stat-label">{{ labels.citations_made }}</span>
+      <span class="stat-label" title="Total de processos com citações registradas no recorte atual.">
+        {{ labels.citations_made }}
+      </span>
       <span class="stat-subtitle">{{ labels.citations_subtitle }}</span>
       <strong class="stat-value">{{ total_citations }}</strong>
     </a>
     <article class="panel stat-card">
-      <span class="stat-label">{{ labels.procedence_rate }}</span>
+      <span class="stat-label" title="Percentual de decisões procedentes no recorte atual.">
+        {{ labels.procedence_rate }}
+      </span>
       <strong class="stat-value">
         {% if procedence_rate is not none %}
           {{ procedence_rate|round(1) }}%
@@ -43,7 +51,9 @@
       </strong>
     </article>
     <article class="panel stat-card">
-      <span class="stat-label">{{ labels.avg_citations }}</span>
+      <span class="stat-label" title="Média de citações por processo no recorte atual.">
+        {{ labels.avg_citations }}
+      </span>
       <strong class="stat-value">
         {% if avg_citations_per_process is not none %}
           {{ avg_citations_per_process|round(2) }}
@@ -53,7 +63,9 @@
       </strong>
     </article>
     <article class="panel stat-card">
-      <span class="stat-label">{{ labels.diversity_sources }}</span>
+      <span class="stat-label" title="Diversidade de fontes citadas (autores e legislações distintas).">
+        {{ labels.diversity_sources }}
+      </span>
       <div class="stat-stack">
         <span><strong>{{ distinct_authors }}</strong> {{ labels.distinct_authors }}</span>
         <span><strong>{{ distinct_norms }}</strong> {{ labels.distinct_norms }}</span>
@@ -64,7 +76,7 @@
   <section class="grid">
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ labels.doutrinas }}</h2>
+        <h2 title="Autores doutrinários mais citados pelo ministro.">{{ labels.doutrinas }}</h2>
       </div>
       {% if top_doctrine %}
         <table>
@@ -85,6 +97,16 @@
           {% endfor %}
           </tbody>
         </table>
+        {% if show_more_doctrine %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('ministro_detail', minister=minister_name, doctrine_limit=next_doctrine_limit, acordao_limit=acordao_limit, legislation_limit=legislation_limit, decision_limit=decision_limit, relatoria_limit=relatoria_limit, **filter_params_no_minister) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem citacoes doutrinarias para os filtros atuais.</p>
       {% endif %}
@@ -92,7 +114,7 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ labels.acordaos }}</h2>
+        <h2 title="Acórdãos mais citados pelo ministro.">{{ labels.acordaos }}</h2>
       </div>
       {% if top_norms %}
         <table>
@@ -111,6 +133,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if show_more_acordao %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('ministro_detail', minister=minister_name, acordao_limit=next_acordao_limit, doctrine_limit=doctrine_limit, legislation_limit=legislation_limit, decision_limit=decision_limit, relatoria_limit=relatoria_limit, **filter_params_no_minister) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem referencias normativas ou jurisprudenciais para os filtros atuais.</p>
       {% endif %}
@@ -118,7 +150,7 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ labels.legislacoes }}</h2>
+        <h2 title="Legislações mais citadas pelo ministro.">{{ labels.legislacoes }}</h2>
       </div>
       {% if top_legislation %}
         <table>
@@ -139,6 +171,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if show_more_legislation %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('ministro_detail', minister=minister_name, legislation_limit=next_legislation_limit, doctrine_limit=doctrine_limit, acordao_limit=acordao_limit, decision_limit=decision_limit, relatoria_limit=relatoria_limit, **filter_params_no_minister) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem referencias legislativas para os filtros atuais.</p>
       {% endif %}
@@ -148,7 +190,7 @@
   <section class="grid">
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ labels.decisoes }}</h2>
+        <h2 title="Distribuição de decisões finais no recorte atual.">{{ labels.decisoes }}</h2>
       </div>
       {% if decision_distribution %}
         <table>
@@ -167,6 +209,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if show_more_decision %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('ministro_detail', minister=minister_name, decision_limit=next_decision_limit, doctrine_limit=doctrine_limit, acordao_limit=acordao_limit, legislation_limit=legislation_limit, relatoria_limit=relatoria_limit, **filter_params_no_minister) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Sem dados de decisao para os filtros atuais.</p>
       {% endif %}
@@ -174,8 +226,8 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>{{ labels.relatoria_processos }}</h2>
-        <span class="chip">{{ relatoria_cases|length }} processos</span>
+        <h2 title="Processos em que o ministro atuou como relator.">{{ labels.relatoria_processos }}</h2>
+        <span class="chip">{{ relatoria_total }} processos</span>
       </div>
       {% if relatoria_cases %}
         <table class="data-table">
@@ -202,6 +254,16 @@
             {% endfor %}
           </tbody>
         </table>
+        {% if show_more_relatoria %}
+          <div class="actions">
+            <a
+              class="secondary"
+              href="{{ url_for('ministro_detail', minister=minister_name, relatoria_limit=next_relatoria_limit, doctrine_limit=doctrine_limit, acordao_limit=acordao_limit, legislation_limit=legislation_limit, decision_limit=decision_limit, **filter_params_no_minister) }}"
+            >
+              Ver mais
+            </a>
+          </div>
+        {% endif %}
       {% else %}
         <p class="empty">Nenhum processo encontrado para este ministro.</p>
       {% endif %}
@@ -211,19 +273,19 @@
   <section class="chart-grid">
     <article class="chart-card">
       <div class="panel-header">
-        <h2>{{ labels.chart_decisions_year }}</h2>
+        <h2 title="Evolução do número de decisões por ano.">{{ labels.chart_decisions_year }}</h2>
       </div>
       <canvas id="decisionsByYearChart"></canvas>
     </article>
     <article class="chart-card">
       <div class="panel-header">
-        <h2>{{ labels.chart_decision_profile }}</h2>
+        <h2 title="Perfil de decisões por resultado.">{{ labels.chart_decision_profile }}</h2>
       </div>
       <canvas id="decisionProfileChart"></canvas>
     </article>
     <article class="chart-card">
       <div class="panel-header">
-        <h2>{{ labels.chart_citation_sources }}</h2>
+        <h2 title="Citações por tipo de fonte no recorte atual.">{{ labels.chart_citation_sources }}</h2>
       </div>
       <canvas id="citationSourcesChart"></canvas>
     </article>

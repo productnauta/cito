@@ -3041,9 +3041,11 @@ def _compute_minister_reference_stats(
         if isinstance(judgment_date, datetime):
             decisions_by_year[judgment_date.year] += 1
 
-    def _top_items(counter: Counter[str], limit: int = 5) -> List[Dict[str, Any]]:
+    def _top_items(counter: Counter[str], limit: Optional[int] = None) -> List[Dict[str, Any]]:
         items = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
-        return [{"label": k, "total": v} for k, v in items[:limit]]
+        if limit is not None and limit > 0:
+            items = items[:limit]
+        return [{"label": k, "total": v} for k, v in items]
 
     decision_distribution = [
         {"label": k, "total": v}
@@ -3062,9 +3064,9 @@ def _compute_minister_reference_stats(
 
     return {
         "total_citations": total_citations,
-        "top_legislation": _top_items(legislation_counter, limit=5),
-        "top_doctrine": _top_items(doctrine_counter, limit=5),
-        "top_acordaos": _top_items(acordao_counter, limit=5),
+        "top_legislation": _top_items(legislation_counter),
+        "top_doctrine": _top_items(doctrine_counter),
+        "top_acordaos": _top_items(acordao_counter),
         "decision_distribution": decision_distribution,
         "decision_profile": decision_profile,
         "decisions_by_year": decisions_by_year_list,
@@ -3730,10 +3732,39 @@ def ministro_detail() -> Any:
     if not minister_name:
         return redirect(url_for("ministros", **{k: v for k, v in filters.items() if v}))
 
+    doctrine_limit = _limit_value(request.args.get("doctrine_limit"), default=10)
+    acordao_limit = _limit_value(request.args.get("acordao_limit"), default=10)
+    legislation_limit = _limit_value(request.args.get("legislation_limit"), default=10)
+    decision_limit = _limit_value(request.args.get("decision_limit"), default=10)
+    relatoria_limit = _limit_value(request.args.get("relatoria_limit"), default=10)
+
     collection = _get_collection()
     details = _aggregate_minister_detail(collection, filters, minister_name)
     relatoria_match = _build_relatoria_match(filters, minister_name)
-    relatoria_cases = _fetch_relatoria_cases(collection, relatoria_match)
+    relatoria_cases_all = _fetch_relatoria_cases(collection, relatoria_match)
+
+    top_doctrine_all = details.get("top_doctrine") or []
+    top_norms_all = details.get("top_norms") or []
+    top_legislation_all = details.get("top_legislation") or []
+    decision_distribution_all = details.get("decision_distribution") or []
+
+    top_doctrine = top_doctrine_all[:doctrine_limit]
+    top_norms = top_norms_all[:acordao_limit]
+    top_legislation = top_legislation_all[:legislation_limit]
+    decision_distribution = decision_distribution_all[:decision_limit]
+    relatoria_cases = relatoria_cases_all[:relatoria_limit]
+
+    show_more_doctrine = len(top_doctrine_all) > doctrine_limit
+    show_more_acordao = len(top_norms_all) > acordao_limit
+    show_more_legislation = len(top_legislation_all) > legislation_limit
+    show_more_decision = len(decision_distribution_all) > decision_limit
+    show_more_relatoria = len(relatoria_cases_all) > relatoria_limit
+
+    next_doctrine_limit = doctrine_limit + 50
+    next_acordao_limit = acordao_limit + 50
+    next_legislation_limit = legislation_limit + 50
+    next_decision_limit = decision_limit + 50
+    next_relatoria_limit = relatoria_limit + 50
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
@@ -3757,14 +3788,30 @@ def ministro_detail() -> Any:
         avg_citations_per_process=details["avg_citations_per_process"],
         distinct_authors=details["distinct_authors"],
         distinct_norms=details["distinct_norms"],
-        decision_distribution=details["decision_distribution"],
         decision_profile=details["decision_profile"],
         decisions_by_year=details["decisions_by_year"],
         citation_sources=details["citation_sources"],
-        top_doctrine=details["top_doctrine"],
-        top_norms=details["top_norms"],
-        top_legislation=details["top_legislation"],
+        top_doctrine=top_doctrine,
+        top_norms=top_norms,
+        top_legislation=top_legislation,
+        decision_distribution=decision_distribution,
         relatoria_cases=relatoria_cases,
+        relatoria_total=len(relatoria_cases_all),
+        show_more_doctrine=show_more_doctrine,
+        show_more_acordao=show_more_acordao,
+        show_more_legislation=show_more_legislation,
+        show_more_decision=show_more_decision,
+        show_more_relatoria=show_more_relatoria,
+        doctrine_limit=doctrine_limit,
+        acordao_limit=acordao_limit,
+        legislation_limit=legislation_limit,
+        decision_limit=decision_limit,
+        relatoria_limit=relatoria_limit,
+        next_doctrine_limit=next_doctrine_limit,
+        next_acordao_limit=next_acordao_limit,
+        next_legislation_limit=next_legislation_limit,
+        next_decision_limit=next_decision_limit,
+        next_relatoria_limit=next_relatoria_limit,
     )
 
 
