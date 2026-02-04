@@ -151,6 +151,9 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
+# dependências vendorizadas
+_vendor/
+
 # mkdocs documentation
 /site
 
@@ -205,3 +208,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+<<<<<<< HEAD
+# secrets
+**/service_account.json
+**/*service_account*.json
+**/*credentials*.json
+=======
+
+
+# secrets
+**/service_account.json
+**/config/service_account.json
+
+**/ai-model.json
+**/config/ai-model.json
+deprecated/config/ai-model.json
+versions/**/config/ai-model.json
+>>>>>>> 3680072 (update gitignore)
