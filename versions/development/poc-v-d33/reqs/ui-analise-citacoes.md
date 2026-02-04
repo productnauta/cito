@@ -150,3 +150,12 @@ Em uma linha, deverão ser exibidos os dois cards descritos abaixo, dividindo em
         - Citado - Noúmero total de casos em que o ministro foi citado em decisões, doutrinas, legislações, etc. Ao passar o mouse no número Exibir tooltip com o detalhamento das citações (ex.: 10 citações em decisões, 5 citações em doutrinas, etc).
         - Autores (incluir tooltip, informando que é o núemro total de autores diferentes citados por ele) - Número total de autores únicos citados em casos relacionados ao ministro. 
     
+
+
+
+    ## INTERFACE DETALHES MINISTRO
+
+    lIMITAR TODOS OS CARDS À EXIBIÇÃO DE 10 ITENS, COM OPÇÃO DE "VER MAIS" PARA CARREGAR MAIS ITENS.
+    iNCLUIR tooltips nos nomes de cada card, explicando o que cada métrica representa.
+
+    

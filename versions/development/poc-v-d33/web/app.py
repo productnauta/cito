@@ -3219,124 +3219,134 @@ app = Flask(__name__)
 
 @app.route("/")
 def index() -> Any:
-    return redirect(url_for("doutrina"))
+    return redirect(url_for("analise_citacoes"))
 
 
 @app.route("/doutrina")
-def doutrina() -> Any:
+def doutrina_redirect() -> Any:
+    return redirect(url_for("analise_citacoes", **request.args))
+
+
+@app.route("/analise-citacoes")
+def analise_citacoes() -> Any:
     filters = _get_filters(request.args)
     collection = _get_collection()
     author_limit = _limit_value(request.args.get("author_limit"), default=10)
     title_limit = _limit_value(request.args.get("title_limit"), default=10)
+    legislation_limit = _limit_value(request.args.get("legislation_limit"), default=10)
+    acordao_limit = _limit_value(request.args.get("acordao_limit"), default=10)
 
     base_match = _build_match(filters)
-    citation_types_all = [
-        "doutrina",
-        "legislacao",
-        "precedente_vinculante",
-        "precedente_persuasivo",
-        "jurisprudencia",
-        "outro",
-    ]
-
-    summary_total = _count_cases(collection, filters)
     authors = _aggregate_authors(collection, filters)
-    titles = _aggregate_titles(collection, filters)
-    rapporteurs = _aggregate_rapporteurs(collection, filters)
-    top_doctrine_titles = _aggregate_top_doctrine_titles(collection, base_match, limit=3)
-    top_cases_by_doctrine = _aggregate_top_cases_by_doctrine(collection, base_match, limit=3)
-    avg_citations = _aggregate_avg_citations(collection, base_match, citation_types_all)
-    citations_by_year = _aggregate_citations_per_case_by_year(
-        collection, base_match, citation_types_all
+    titles = _aggregate_works(collection, filters)
+    legislations = _aggregate_legislations(collection, base_match)
+    acordaos = _aggregate_acordaos(collection, base_match)
+    reference_totals = _aggregate_reference_totals(collection, base_match)
+    heatmap_raw = _aggregate_author_minister_heatmap(
+        collection, base_match, author_limit=15, minister_limit=10
     )
-    citations_trend = _calculate_citation_trend(citations_by_year)
-    vote_vencido_rate = _aggregate_vote_vencido_rate(collection, base_match)
-    decision_distribution = _aggregate_decision_distribution(collection, base_match)
-    citation_ratio = _aggregate_citation_ratio(collection, base_match)
-    cases_by_year = _aggregate_cases_by_year(collection, base_match)
-    cases_per_year_avg = _calculate_cases_per_year_avg(cases_by_year)
-    case_trend = _calculate_case_trend(cases_by_year)
-    top_titles_series = _aggregate_top_doctrine_titles_timeseries(collection, base_match, limit=5)
-    heatmap = _aggregate_author_minister_heatmap(collection, base_match, author_limit=10, minister_limit=10)
 
-    total_decisions = sum(item.get("total", 0) for item in decision_distribution)
-    decision_distribution_pct = []
-    if total_decisions:
-        for item in decision_distribution:
-            decision_distribution_pct.append(
-                {
-                    "label": item.get("label", "Nao informado"),
-                    "total": item.get("total", 0),
-                    "percent": (item.get("total", 0) / total_decisions) * 100,
-                }
-            )
+    total_cases = reference_totals["total_cases"]
+    total_doctrines = reference_totals["total_doctrines"]
+    total_legislation = reference_totals["total_legislation"]
+    total_acordaos = sum(row.get("total", 0) for row in acordaos)
 
-    case_trend_label = "—"
-    if case_trend:
-        change = case_trend.get("change")
-        year_label = case_trend.get("year")
-        if change is not None and year_label is not None:
-            sign = "+" if change >= 0 else ""
-            case_trend_label = f"{sign}{change:.1f}% em {year_label}"
+    doctrines_per_case = (total_doctrines / total_cases) if total_cases else None
+    legislations_per_case = (total_legislation / total_cases) if total_cases else None
+    acordaos_per_case = (total_acordaos / total_cases) if total_cases else None
 
-    citations_trend_label = "—"
-    citations_trend_class = ""
-    if citations_trend:
-        change = citations_trend.get("change")
-        prev_year = citations_trend.get("prev_year")
-        if change is not None and prev_year is not None:
-            sign = "+" if change >= 0 else ""
-            arrow = "↑" if change > 0 else ("↓" if change < 0 else "→")
-            citations_trend_label = f"{arrow} {sign}{change:.1f}% vs {prev_year}"
-            citations_trend_class = "up" if change > 0 else ("down" if change < 0 else "flat")
+    total_author_citations = sum(row.get("total", 0) for row in authors)
+    authors_rows = []
+    for row in authors[:author_limit]:
+        total = int(row.get("total") or 0)
+        percent = (total / total_author_citations * 100) if total_author_citations else None
+        authors_rows.append({"label": row.get("label"), "total": total, "percent": percent})
 
+    titles_rows = []
+    for row in titles[:title_limit]:
+        title_full = str(row.get("label") or "").strip() or "—"
+        author_full = str(row.get("author") or "").strip()
+        titles_rows.append(
+            {
+                "title_full": title_full,
+                "author_full": author_full,
+                "author_display": _abbrev_author_label(author_full) if author_full else "",
+                "total": int(row.get("total") or 0),
+            }
+        )
+
+    legislations_rows = legislations[:legislation_limit]
+    acordaos_rows = acordaos[:acordao_limit]
+
+    heatmap = {
+        "ministers": [
+            {"full": name, "label": _abbrev_minister_label(name)}
+            for name in heatmap_raw.get("ministers", [])
+        ],
+        "rows": [
+            {
+                "author_full": row.get("author"),
+                "author_label": _abbrev_author_label(row.get("author")),
+                "cells": row.get("cells", []),
+            }
+            for row in heatmap_raw.get("rows", [])
+        ],
+    }
+
+    top_authors = authors[:6]
+    top_acordaos = acordaos[:10]
     filter_params = {k: v for k, v in filters.items() if v}
     next_author_limit = author_limit + 50
     next_title_limit = title_limit + 50
+    next_legislation_limit = legislation_limit + 50
+    next_acordao_limit = acordao_limit + 50
 
     return render_template(
-        "doutrina.html",
-        title="CITO | Doutrina",
+        "analise_citacoes.html",
+        title="CITO | Análise de Citações",
+        brand_sub="Análise de Citações",
+        hero_copy="Painel consolidado de citações doutrinárias, legislativas, jurisprudenciais e acórdãos.",
         filters=filters,
         filter_params=filter_params,
-        summary_total=summary_total,
-        authors=authors[:author_limit],
-        titles=titles[:title_limit],
         authors_total=len(authors),
         titles_total=len(titles),
+        legislations_total=len(legislations),
+        acordaos_total=len(acordaos),
+        doctrines_per_case=doctrines_per_case,
+        legislations_per_case=legislations_per_case,
+        acordaos_per_case=acordaos_per_case,
+        top_author_labels=[row.get("label") for row in top_authors],
+        top_author_values=[row.get("total") for row in top_authors],
+        top_acordao_labels=[row.get("label") for row in top_acordaos],
+        top_acordao_values=[row.get("total") for row in top_acordaos],
+        heatmap=heatmap,
+        authors_rows=authors_rows,
+        titles_rows=titles_rows,
+        legislations_rows=legislations_rows,
+        acordaos_rows=acordaos_rows,
         author_limit=author_limit,
         title_limit=title_limit,
+        legislation_limit=legislation_limit,
+        acordao_limit=acordao_limit,
         next_author_limit=next_author_limit,
         next_title_limit=next_title_limit,
-        rapporteurs=rapporteurs,
-        top_doctrine_titles=top_doctrine_titles,
-        top_cases_by_doctrine=top_cases_by_doctrine,
-        avg_citations=avg_citations,
-        citations_trend_label=citations_trend_label,
-        citations_trend_class=citations_trend_class,
-        vote_vencido_rate=vote_vencido_rate,
-        decision_distribution_pct=decision_distribution_pct,
-        citation_ratio=citation_ratio,
-        cases_per_year_avg=cases_per_year_avg,
-        case_trend_label=case_trend_label,
-        top_titles_series=top_titles_series,
-        heatmap=heatmap,
-        chart_minister_labels=[row["label"] for row in rapporteurs[:10]],
-        chart_minister_values=[row["total"] for row in rapporteurs[:10]],
-        chart_decision_labels=[row["label"] for row in decision_distribution_pct],
-        chart_decision_values=[row["percent"] for row in decision_distribution_pct],
-        chart_year_labels=[row["year"] for row in cases_by_year],
-        chart_year_values=[row["total"] for row in cases_by_year],
+        next_legislation_limit=next_legislation_limit,
+        next_acordao_limit=next_acordao_limit,
     )
 
 
 @app.route("/doutrina/detalhe")
-def doutrina_detail() -> Any:
+def doutrina_detail_redirect() -> Any:
+    return redirect(url_for("analise_citacoes_detail", **request.args))
+
+
+@app.route("/analise-citacoes/detalhe")
+def analise_citacoes_detail() -> Any:
     filters = _get_filters(request.args)
     kind = str(request.args.get("kind") or "").strip().lower()
     value = str(request.args.get("value") or "").strip()
     if not value:
-        return redirect(url_for("doutrina", **{k: v for k, v in filters.items() if v}))
+        return redirect(url_for("analise_citacoes", **{k: v for k, v in filters.items() if v}))
 
     overrides: Dict[str, Tuple[str, bool]] = {}
     label_map = {
@@ -3372,8 +3382,10 @@ def doutrina_detail() -> Any:
     next_limit = limit + 50
 
     return render_template(
-        "doutrina_detail.html",
-        title="CITO | Doutrina | Detail",
+        "analise_citacoes_detail.html",
+        title="CITO | Análise de Citações | Detalhe",
+        brand_sub="Análise de Citações",
+        hero_copy="Painel consolidado de citações doutrinárias, legislativas, jurisprudenciais e acórdãos.",
         filters=filters,
         detail_kind=label_map.get(kind, kind).upper(),
         detail_key=kind,

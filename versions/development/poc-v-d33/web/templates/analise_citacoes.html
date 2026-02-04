@@ -82,12 +82,23 @@
         {% endif %}
       </p>
     </article>
+  </section>
+
+  <section class="kpi-row kpi-row--charts">
     <article class="card">
       <h3>Autores mais citados</h3>
       {% if top_author_labels %}
         <canvas id="topAuthorsChart" class="kpi-chart"></canvas>
       {% else %}
         <p class="empty">Sem dados de autores para o recorte atual.</p>
+      {% endif %}
+    </article>
+    <article class="card">
+      <h3>Acórdãos mais citados</h3>
+      {% if top_acordao_labels %}
+        <canvas id="topAcordaosChart" class="kpi-chart"></canvas>
+      {% else %}
+        <p class="empty">Sem dados de acórdãos para o recorte atual.</p>
       {% endif %}
     </article>
   </section>
@@ -332,6 +343,8 @@
   <script>
     const topAuthorLabels = {{ top_author_labels|tojson }};
     const topAuthorValues = {{ top_author_values|tojson }};
+    const topAcordaoLabels = {{ top_acordao_labels|tojson }};
+    const topAcordaoValues = {{ top_acordao_values|tojson }};
 
     if (typeof Chart !== "undefined") {
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
@@ -361,6 +374,31 @@
           },
           options: {
             responsive: true
+          }
+        });
+      }
+
+      const acordaoCanvas = document.getElementById("topAcordaosChart");
+      if (acordaoCanvas && topAcordaoLabels.length) {
+        new Chart(acordaoCanvas, {
+          type: "bar",
+          data: {
+            labels: topAcordaoLabels,
+            datasets: [
+              {
+                label: "Número de citações",
+                data: topAcordaoValues,
+                backgroundColor: "rgba(31, 140, 127, 0.6)",
+                borderColor: "rgba(31, 140, 127, 1)",
+                borderWidth: 1
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            scales: {
+              y: { beginAtZero: true }
+            }
           }
         });
       }
