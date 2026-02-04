@@ -1030,15 +1030,19 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
     return rows
 
 
-def _tag_size_class(value: int, max_value: int) -> str:
-    if max_value <= 0:
-        return "tag-pill--sm"
-    ratio = value / max_value
-    if ratio >= 0.8:
-        return "tag-pill--lg"
-    if ratio >= 0.5:
+def _tag_size_class(value: int, min_value: int, max_value: int) -> str:
+    if max_value <= min_value:
         return "tag-pill--md"
-    return "tag-pill--sm"
+    ratio = (value - min_value) / (max_value - min_value)
+    if ratio >= 0.8:
+        return "tag-pill--xl"
+    if ratio >= 0.6:
+        return "tag-pill--lg"
+    if ratio >= 0.4:
+        return "tag-pill--md"
+    if ratio >= 0.2:
+        return "tag-pill--sm"
+    return "tag-pill--xs"
 
 
 def _aggregate_doctrine_tag_cloud(
@@ -1057,14 +1061,17 @@ def _aggregate_doctrine_tag_cloud(
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
-    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "count": "$total"}})
+    pipeline.append({"$sort": {"count": -1, "label": 1}})
     if limit:
         pipeline.append({"$limit": limit})
     rows = list(collection.aggregate(pipeline))
-    max_total = max((row.get("total", 0) for row in rows), default=0)
+    max_total = max((row.get("count", 0) for row in rows), default=0)
+    min_total = min((row.get("count", 0) for row in rows), default=0)
     for row in rows:
-        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
+        row["size_class"] = _tag_size_class(
+            int(row.get("count", 0)), min_total, max_total
+        )
     return rows
 
 
@@ -1087,14 +1094,17 @@ def _aggregate_legislation_tag_cloud(
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
-    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "count": "$total"}})
+    pipeline.append({"$sort": {"count": -1, "label": 1}})
     if limit:
         pipeline.append({"$limit": limit})
     rows = list(collection.aggregate(pipeline))
-    max_total = max((row.get("total", 0) for row in rows), default=0)
+    max_total = max((row.get("count", 0) for row in rows), default=0)
+    min_total = min((row.get("count", 0) for row in rows), default=0)
     for row in rows:
-        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
+        row["size_class"] = _tag_size_class(
+            int(row.get("count", 0)), min_total, max_total
+        )
     return rows
 
 
@@ -1125,14 +1135,17 @@ def _aggregate_acordao_tag_cloud(
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
-    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "count": "$total"}})
+    pipeline.append({"$sort": {"count": -1, "label": 1}})
     if limit:
         pipeline.append({"$limit": limit})
     rows = list(collection.aggregate(pipeline))
-    max_total = max((row.get("total", 0) for row in rows), default=0)
+    max_total = max((row.get("count", 0) for row in rows), default=0)
+    min_total = min((row.get("count", 0) for row in rows), default=0)
     for row in rows:
-        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
+        row["size_class"] = _tag_size_class(
+            int(row.get("count", 0)), min_total, max_total
+        )
     return rows
 
 
@@ -3143,7 +3156,8 @@ def processos() -> Any:
     total = collection.count_documents(match)
     rows = _fetch_processes(collection, match, limit=limit)
     kpis = _aggregate_process_kpis(collection, match)
-    tag_limit = _limit_value(request.args.get("tag_limit"), default=20)
+    raw_tag_limit = _limit_value(request.args.get("tag_limit"), default=30)
+    tag_limit = min(raw_tag_limit, 30)
     tag_clouds = {
         "doctrine": _aggregate_doctrine_tag_cloud(collection, match, tag_limit),
         "legislation": _aggregate_legislation_tag_cloud(collection, match, tag_limit),
