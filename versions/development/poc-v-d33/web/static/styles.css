@@ -235,6 +235,44 @@ button:hover {
   gap: 16px;
 }
 
+.indicator-bar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.indicator-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.indicator-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(27, 38, 44, 0.08);
+  min-width: 0;
+}
+
+.indicator-label {
+  font-size: 12px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.indicator-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
 .kpi-row {
   display: grid;
   gap: 16px;
@@ -597,6 +635,10 @@ tbody tr:hover {
   .kpi-row--line5,
   .split-grid {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .indicator-bar {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   }
 }
 

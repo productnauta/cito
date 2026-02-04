@@ -37,56 +37,58 @@
     </div>
   </section>
 
-  <section class="kpi-row kpi-row--line1">
-    <article class="card">
-      <h3>Autores</h3>
-      <p class="card-value">{{ authors_total }}</p>
-    </article>
-    <article class="card">
-      <h3>Obras</h3>
-      <p class="card-value">{{ titles_total }}</p>
-    </article>
-    <article class="card">
-      <h3>Legislações</h3>
-      <p class="card-value">{{ legislations_total }}</p>
-    </article>
-    <article class="card">
-      <h3>Acórdãos</h3>
-      <p class="card-value">{{ acordaos_total }}</p>
-    </article>
-  </section>
-
-  <section class="kpi-row kpi-row--line2">
-    <article class="card">
-      <h3>Doutrinas/Caso</h3>
-      <p class="card-value">
-        {% if doctrines_per_case is not none %}
-          {{ doctrines_per_case|round(2) }}
-        {% else %}
-          —
-        {% endif %}
-      </p>
-    </article>
-    <article class="card">
-      <h3>Legislações/Caso</h3>
-      <p class="card-value">
-        {% if legislations_per_case is not none %}
-          {{ legislations_per_case|round(2) }}
-        {% else %}
-          —
-        {% endif %}
-      </p>
-    </article>
-    <article class="card">
-      <h3>Acórdãos/Caso</h3>
-      <p class="card-value">
-        {% if acordaos_per_case is not none %}
-          {{ acordaos_per_case|round(2) }}
-        {% else %}
-          —
-        {% endif %}
-      </p>
-    </article>
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Indicadores Médios</h2>
+    </div>
+    <div class="indicator-bar">
+      <div class="indicator-card">
+        <span class="indicator-label">Total de Autores</span>
+        <span class="indicator-value">{{ authors_total }}</span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Total de Obras</span>
+        <span class="indicator-value">{{ titles_total }}</span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Total de Legislações</span>
+        <span class="indicator-value">{{ legislations_total }}</span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Total de Acórdãos</span>
+        <span class="indicator-value">{{ acordaos_total }}</span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Doutrinas por Caso</span>
+        <span class="indicator-value">
+          {% if doctrines_per_case is not none %}
+            {{ doctrines_per_case|round(2) }}
+          {% else %}
+            —
+          {% endif %}
+        </span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Legislações por Caso</span>
+        <span class="indicator-value">
+          {% if legislations_per_case is not none %}
+            {{ legislations_per_case|round(2) }}
+          {% else %}
+            —
+          {% endif %}
+        </span>
+      </div>
+      <div class="indicator-card">
+        <span class="indicator-label">Acórdãos por Caso</span>
+        <span class="indicator-value">
+          {% if acordaos_per_case is not none %}
+            {{ acordaos_per_case|round(2) }}
+          {% else %}
+            —
+          {% endif %}
+        </span>
+      </div>
+    </div>
   </section>
 
   <section class="kpi-row kpi-row--charts">
