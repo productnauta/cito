@@ -446,9 +446,10 @@ def _get_ministro_filters(args: Dict[str, Any]) -> Dict[str, str]:
     return {
         "minister": str(args.get("minister") or "").strip(),
         "case_class": str(args.get("case_class") or "").strip(),
+        "rapporteur": str(args.get("rapporteur") or "").strip(),
+        "judgment_year": str(args.get("judgment_year") or "").strip(),
         "date_start": str(args.get("date_start") or "").strip(),
         "date_end": str(args.get("date_end") or "").strip(),
-        "process": str(args.get("process") or "").strip(),
     }
 
 
@@ -556,7 +557,8 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
 def _build_ministro_case_match(filters: Dict[str, str]) -> Dict[str, Any]:
     and_clauses: List[Dict[str, Any]] = []
     case_class = filters.get("case_class") or ""
-    process_value = filters.get("process") or ""
+    rapporteur_value = filters.get("rapporteur") or ""
+    year_raw = filters.get("judgment_year") or ""
 
     if case_class:
         rx = _regex(case_class)
@@ -569,18 +571,22 @@ def _build_ministro_case_match(filters: Dict[str, str]) -> Dict[str, Any]:
             }
         )
 
-    if process_value:
-        rx = _regex(process_value)
+    if rapporteur_value:
+        rapporteur_value = normalize_minister_name(rapporteur_value) or rapporteur_value
+        rx = _regex(rapporteur_value)
         and_clauses.append(
             {
                 "$or": [
-                    {"identity.caseNumber": rx},
-                    {"identity.caseTitle": rx},
-                    {"identity.stfDecisionId": rx},
-                    {"caseIdentification.caseNumber": rx},
+                    {"identity.rapporteur": rx},
+                    {"caseIdentification.rapporteur": rx},
                 ]
             }
         )
+
+    if year_raw.isdigit():
+        year = int(year_raw)
+        start, end = _year_range(year)
+        and_clauses.append({"dates.judgmentDate": {"$gte": start, "$lt": end}})
 
     start_date = _parse_date_value(filters.get("date_start") or "")
     end_date = _parse_date_value(filters.get("date_end") or "")
@@ -2204,19 +2210,26 @@ def _aggregate_case_classes(collection: Collection, case_match: Dict[str, Any]) 
     return sorted(classes, key=str.casefold)
 
 
-def _aggregate_rapporteur_options(collection: Collection) -> List[str]:
-    pipeline: List[Dict[str, Any]] = [
-        {
-            "$addFields": {
-                "_rapporteur": {
-                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+def _aggregate_rapporteur_options(
+    collection: Collection, case_match: Optional[Dict[str, Any]] = None
+) -> List[str]:
+    pipeline: List[Dict[str, Any]] = []
+    if case_match:
+        pipeline.append({"$match": case_match})
+    pipeline.extend(
+        [
+            {
+                "$addFields": {
+                    "_rapporteur": {
+                        "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                    }
                 }
-            }
-        },
-        {"$match": {"_rapporteur": {"$nin": [None, ""]}}},
-        {"$group": {"_id": "$_rapporteur"}},
-        {"$project": {"_id": 0, "label": "$_id"}},
-    ]
+            },
+            {"$match": {"_rapporteur": {"$nin": [None, ""]}}},
+            {"$group": {"_id": "$_rapporteur"}},
+            {"$project": {"_id": 0, "label": "$_id"}},
+        ]
+    )
     names = [row["label"] for row in collection.aggregate(pipeline)]
     return sorted(names, key=str.casefold)
 
@@ -2236,218 +2249,139 @@ def _aggregate_author_suggestions(collection: Collection, limit: int = 200) -> L
 
 def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> List[Dict[str, Any]]:
     case_match = _build_ministro_case_match(filters)
-    minister_value = filters.get("minister") or ""
-    if minister_value:
-        minister_value = normalize_minister_name(minister_value) or minister_value
-    minister_regex = _regex(minister_value, exact=True) if minister_value else None
-    all_citation_types = [
-        "doutrina",
-        "legislacao",
-        "precedente_vinculante",
-        "precedente_persuasivo",
-        "jurisprudencia",
-        "outro",
-    ]
+    minister_filter_raw = str(filters.get("minister") or "").strip()
+    minister_filter = normalize_minister_name(minister_filter_raw) or minister_filter_raw
+    minister_filter_key = minister_filter.casefold() if minister_filter else ""
 
-    rapporteur_pipeline: List[Dict[str, Any]] = []
-    if case_match:
-        rapporteur_pipeline.append({"$match": case_match})
-    rapporteur_pipeline.append({"$addFields": {"_rapporteur": "$identity.rapporteur"}})
-    if minister_regex:
-        rapporteur_pipeline.append({"$match": {"_rapporteur": minister_regex}})
-    rapporteur_pipeline.append({"$match": {"_rapporteur": {"$nin": [None, ""]}}})
-    rapporteur_pipeline.append(
-        {
-            "$group": {
-                "_id": "$_rapporteur",
-                "case_ids": {"$addToSet": _case_id_expr()},
-            }
-        }
-    )
-    rapporteur_pipeline.append(
-        {
-            "$project": {
-                "_id": 0,
-                "label": "$_id",
-                "case_ids": 1,
-                "total_relatorias": {"$size": "$case_ids"},
-            }
-        }
-    )
-
-    vote_pipeline: List[Dict[str, Any]] = []
-    if case_match:
-        vote_pipeline.append({"$match": case_match})
-    vote_pipeline.append({"$unwind": f"${MINISTER_VOTES_PATH}"})
-    vote_pipeline.append(
-        {
-            "$addFields": {
-                "_minister": f"${MINISTER_VOTES_PATH}.ministerName",
-                "_voteType": {"$ifNull": [f"${MINISTER_VOTES_PATH}.voteType", ""]},
-            }
-        }
-    )
-    if minister_regex:
-        vote_pipeline.append({"$match": {"_minister": minister_regex}})
-    vote_pipeline.append({"$match": {"_minister": {"$nin": [None, ""]}}})
-    vote_pipeline.append(
-        {
-            "$group": {
-                "_id": "$_minister",
-                "case_ids": {"$addToSet": _case_id_expr()},
-                "total_votes_defined": {
-                    "$sum": {
-                        "$cond": [
-                            {"$ne": ["$_voteType", ""]},
-                            1,
-                            0,
-                        ]
-                    }
-                },
-                "total_votes_pending": {
-                    "$sum": {
-                        "$cond": [
-                            {"$eq": ["$_voteType", ""]},
-                            1,
-                            0,
-                        ]
-                    }
-                },
-                "total_votes_vencido": {
-                    "$sum": {
-                        "$cond": [
-                            {"$eq": ["$_voteType", "vencido"]},
-                            1,
-                            0,
-                        ]
-                    }
-                },
-            }
-        }
-    )
-    vote_pipeline.append(
-        {
-            "$project": {
-                "_id": 0,
-                "label": "$_id",
-                "case_ids": 1,
-                "total_votes_defined": 1,
-                "total_votes_pending": 1,
-                "total_votes_vencido": 1,
-            }
-        }
-    )
-
-    citations_pipeline: List[Dict[str, Any]] = []
-    if case_match:
-        citations_pipeline.append({"$match": case_match})
-    citations_pipeline.append(
-        {
-            "$addFields": {
-                "_rapporteur": {
-                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
-                },
-                "_voteMinisters": {
-                    "$map": {
-                        "input": {"$ifNull": [f"${MINISTER_VOTES_PATH}", []]},
-                        "as": "vote",
-                        "in": "$$vote.ministerName",
-                    }
-                },
-                "_citationsCount": _citations_count_expr(all_citation_types),
-            }
-        }
-    )
-    citations_pipeline.append(
-        {"$addFields": {"_ministers": {"$setUnion": [["$_rapporteur"], "$_voteMinisters"]}}}
-    )
-    citations_pipeline.append({"$unwind": "$_ministers"})
-    citations_pipeline.append({"$match": {"_ministers": {"$nin": [None, ""]}}})
-    if minister_regex:
-        citations_pipeline.append({"$match": {"_ministers": minister_regex}})
-    citations_pipeline.append(
-        {
-            "$group": {
-                "_id": "$_ministers",
-                "citations_total": {"$sum": "$_citationsCount"},
-            }
-        }
-    )
-    citations_pipeline.append(
-        {"$project": {"_id": 0, "label": "$_id", "citations_total": 1}}
-    )
+    projection = {
+        "identity.stfDecisionId": 1,
+        "identity.rapporteur": 1,
+        "caseIdentification.rapporteur": 1,
+        "dates.judgmentDate": 1,
+        MINISTER_VOTES_PATH: 1,
+        CITATIONS_PATH: 1,
+        "caseData.doctrineReferences": 1,
+        "caseData.legislationReferences": 1,
+        "caseData.notesReferences": 1,
+    }
 
     stats: Dict[str, Dict[str, Any]] = {}
-    for row in collection.aggregate(rapporteur_pipeline):
-        raw_name = row.get("label") or ""
-        name = normalize_minister_name(raw_name) or raw_name
-        entry = stats.get(name)
-        if not entry:
-            entry = {
-                "minister": name,
-                "case_ids": set(),
-                "relatoria_case_ids": set(),
-                "total_relatorias": 0,
-                "citations_total": 0,
-                "total_votes_defined": 0,
-                "total_votes_pending": 0,
-                "total_votes_vencido": 0,
-            }
-            stats[name] = entry
-        entry["relatoria_case_ids"].update(row.get("case_ids") or [])
-        entry["case_ids"].update(row.get("case_ids") or [])
-        entry["total_relatorias"] = len(entry["relatoria_case_ids"])
+    cursor = collection.find(case_match or {}, projection=projection)
+    for doc in cursor:
+        identity = doc.get("identity") or {}
+        case_ident = doc.get("caseIdentification") or {}
+        case_data = doc.get("caseData") or {}
 
-    for row in collection.aggregate(vote_pipeline):
-        raw_name = row.get("label") or ""
-        name = normalize_minister_name(raw_name) or raw_name
-        entry = stats.get(name)
-        if not entry:
-            entry = {
-                "minister": name,
-                "case_ids": set(),
-                "relatoria_case_ids": set(),
-                "total_relatorias": 0,
-                "citations_total": 0,
-                "total_votes_defined": 0,
-                "total_votes_pending": 0,
-                "total_votes_vencido": 0,
-            }
-            stats[name] = entry
-        entry["case_ids"].update(row.get("case_ids") or [])
-        entry["total_votes_defined"] += row.get("total_votes_defined") or 0
-        entry["total_votes_pending"] += row.get("total_votes_pending") or 0
-        entry["total_votes_vencido"] += row.get("total_votes_vencido") or 0
+        case_id = identity.get("stfDecisionId") or str(doc.get("_id"))
+        rapporteur_raw = identity.get("rapporteur") or case_ident.get("rapporteur") or ""
+        rapporteur_name = normalize_minister_name(rapporteur_raw) or rapporteur_raw
 
-    for row in collection.aggregate(citations_pipeline):
-        raw_name = row.get("label") or ""
-        name = normalize_minister_name(raw_name) or raw_name
-        entry = stats.get(name)
-        if not entry:
-            entry = {
-                "minister": name,
-                "case_ids": set(),
-                "relatoria_case_ids": set(),
-                "total_relatorias": 0,
-                "citations_total": 0,
-                "total_votes_defined": 0,
-                "total_votes_pending": 0,
-                "total_votes_vencido": 0,
-            }
-            stats[name] = entry
-        entry["citations_total"] = row.get("citations_total") or 0
+        ministers: List[str] = []
+        if rapporteur_name:
+            ministers.append(rapporteur_name)
+        decision_details = case_data.get("decisionDetails")
+        if not isinstance(decision_details, dict):
+            decision_details = {}
+        votes = decision_details.get("ministerVotes") or []
+        if isinstance(votes, list):
+            for vote in votes:
+                if not isinstance(vote, dict):
+                    continue
+                vote_name = vote.get("ministerName") or vote.get("minister")
+                if not vote_name:
+                    continue
+                name = normalize_minister_name(vote_name) or str(vote_name).strip()
+                if name:
+                    ministers.append(name)
+
+        if not ministers:
+            continue
+
+        if minister_filter_key:
+            ministers = [
+                name
+                for name in ministers
+                if (normalize_minister_name(name) or name).casefold() == minister_filter_key
+            ]
+            if not ministers:
+                continue
+
+        judgment_date = (doc.get("dates") or {}).get("judgmentDate")
+        judgment_year = judgment_date.year if isinstance(judgment_date, datetime) else None
+
+        doctrine_refs = case_data.get("doctrineReferences") or []
+        doctrine_count = len(doctrine_refs)
+        authors = set()
+        for ref in doctrine_refs:
+            if isinstance(ref, dict):
+                author = str(ref.get("author") or "").strip()
+                if author:
+                    authors.add(author)
+
+        legislation_refs = case_data.get("legislationReferences") or []
+        legislation_count = len(legislation_refs)
+
+        decision_citations = decision_details.get("citations")
+        if isinstance(decision_citations, list):
+            decisions_count = len([item for item in decision_citations if item])
+        else:
+            decisions_count = 0
+
+        notes_refs = case_data.get("notesReferences") or []
+        acordao_count = _count_acordao_references(notes_refs)
+
+        for minister in set(ministers):
+            minister_name = normalize_minister_name(minister) or minister
+            entry = stats.get(minister_name)
+            if not entry:
+                entry = {
+                    "minister": minister_name,
+                    "case_ids": set(),
+                    "relatoria_case_ids": set(),
+                    "years": set(),
+                    "citations": {
+                        "decisoes": 0,
+                        "doutrina": 0,
+                        "legislacao": 0,
+                        "acordaos": 0,
+                    },
+                    "authors": set(),
+                }
+                stats[minister_name] = entry
+
+            entry["case_ids"].add(case_id)
+            if rapporteur_name and (
+                (normalize_minister_name(rapporteur_name) or rapporteur_name).casefold()
+                == (normalize_minister_name(minister_name) or minister_name).casefold()
+            ):
+                entry["relatoria_case_ids"].add(case_id)
+            if judgment_year:
+                entry["years"].add(judgment_year)
+
+            entry["citations"]["decisoes"] += decisions_count
+            entry["citations"]["doutrina"] += doctrine_count
+            entry["citations"]["legislacao"] += legislation_count
+            entry["citations"]["acordaos"] += acordao_count
+            entry["authors"].update(authors)
 
     results: List[Dict[str, Any]] = []
     for entry in stats.values():
+        total_processes = len(entry["case_ids"])
+        total_relatorias = len(entry["relatoria_case_ids"])
+        years_count = len(entry["years"])
+        cases_per_year = (total_processes / years_count) if years_count else None
+        citations_total = sum(entry["citations"].values())
+
         results.append(
             {
                 "minister": entry["minister"],
-                "total_processes": len(entry["case_ids"]),
-                "total_relatorias": entry["total_relatorias"],
-                "citations_total": entry["citations_total"],
-                "total_votes_vencido": entry["total_votes_vencido"],
-                "total_votes_defined": entry["total_votes_defined"],
-                "total_votes_pending": entry["total_votes_pending"],
+                "minister_label": _abbrev_author_label(entry["minister"]),
+                "total_processes": total_processes,
+                "total_relatorias": total_relatorias,
+                "cases_per_year": cases_per_year,
+                "citations_total": citations_total,
+                "citations_breakdown": entry["citations"],
+                "authors_total": len(entry["authors"]),
             }
         )
 
@@ -2604,6 +2538,24 @@ def _normalize_ref_text(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).split()).strip()
+
+
+def _count_acordao_references(notes_refs: List[Any]) -> int:
+    total = 0
+    for note in notes_refs:
+        if not isinstance(note, dict):
+            continue
+        if str(note.get("noteType") or "").strip() != "stf_acordao":
+            continue
+        items = note.get("items") if isinstance(note.get("items"), list) else []
+        if items:
+            for item in items:
+                if isinstance(item, dict) and item.get("rawRef"):
+                    total += 1
+        else:
+            if note.get("rawLine"):
+                total += 1
+    return total
 
 
 def _abbrev_minister_label(name: str) -> str:
@@ -3407,14 +3359,6 @@ def ministros() -> Any:
     filters = _get_ministro_filters(request.args)
     collection = _get_collection()
     case_match = _build_ministro_case_match(filters)
-    citation_types_all = [
-        "doutrina",
-        "legislacao",
-        "precedente_vinculante",
-        "precedente_persuasivo",
-        "jurisprudencia",
-        "outro",
-    ]
 
     ministers_list = _aggregate_ministers(collection, filters)
     total_ministers = len(ministers_list)
@@ -3422,84 +3366,87 @@ def ministros() -> Any:
     visible_ministers = ministers_list[:limit]
     next_limit = limit + 50
 
-    ministers_totals = {
-        "total_processes": sum(item.get("total_processes", 0) for item in ministers_list),
-        "total_relatorias": sum(item.get("total_relatorias", 0) for item in ministers_list),
-        "citations_total": sum(item.get("citations_total", 0) for item in ministers_list),
-        "total_votes_vencido": sum(item.get("total_votes_vencido", 0) for item in ministers_list),
-        "total_votes_defined": sum(item.get("total_votes_defined", 0) for item in ministers_list),
-        "total_votes_pending": sum(item.get("total_votes_pending", 0) for item in ministers_list),
-    }
-
     minister_options = _aggregate_minister_options(collection, case_match)
     class_options = _aggregate_case_classes(collection, case_match)
+    rapporteur_options = _aggregate_rapporteur_options(collection, case_match)
 
-    total_cases = _count_distinct_cases(collection, case_match or {})
-    avg_citations = _aggregate_avg_citations(collection, case_match, citation_types_all)
-    vote_vencido_rate = _aggregate_vote_vencido_rate(collection, case_match)
-    decision_distribution = _aggregate_decision_distribution(collection, case_match)
-    citation_ratio = _aggregate_citation_ratio(collection, case_match)
-    cases_by_year = _aggregate_cases_by_year(collection, case_match)
-    cases_per_year_avg = _calculate_cases_per_year_avg(cases_by_year)
-    case_trend = _calculate_case_trend(cases_by_year)
+    total_cases_per_minister = sum(item.get("total_processes", 0) for item in ministers_list)
+    avg_cases_per_minister = (
+        (total_cases_per_minister / total_ministers) if total_ministers else None
+    )
 
-    total_decisions = sum(item.get("total", 0) for item in decision_distribution)
-    decision_distribution_pct = []
-    if total_decisions:
-        for item in decision_distribution:
-            decision_distribution_pct.append(
-                {
-                    "label": item.get("label", "Nao informado"),
-                    "total": item.get("total", 0),
-                    "percent": (item.get("total", 0) / total_decisions) * 100,
-                }
-            )
+    total_doutrinas = sum(
+        (item.get("citations_breakdown") or {}).get("doutrina", 0) for item in ministers_list
+    )
+    total_legislacoes = sum(
+        (item.get("citations_breakdown") or {}).get("legislacao", 0) for item in ministers_list
+    )
+    total_acordaos = sum(
+        (item.get("citations_breakdown") or {}).get("acordaos", 0) for item in ministers_list
+    )
 
-    top_relatoria = sorted(
+    if total_cases_per_minister > 0:
+        doutrinas_per_minister_case = total_doutrinas / total_cases_per_minister
+        legislacoes_per_minister_case = total_legislacoes / total_cases_per_minister
+        acordaos_per_minister_case = total_acordaos / total_cases_per_minister
+    else:
+        doutrinas_per_minister_case = None
+        legislacoes_per_minister_case = None
+        acordaos_per_minister_case = None
+
+    top_relatorias = sorted(
         ministers_list,
         key=lambda item: (-item.get("total_relatorias", 0), item["minister"].casefold()),
     )
-    top_relatoria_minister = top_relatoria[0] if top_relatoria else None
+    top_relatorias_10 = top_relatorias[:10]
+    top_relatorias_7 = top_relatorias[:7]
+    total_relatorias_top = sum(item.get("total_relatorias", 0) for item in top_relatorias_7)
+    relatoria_percentages = [
+        (item.get("total_relatorias", 0) / total_relatorias_top * 100)
+        if total_relatorias_top > 0
+        else 0
+        for item in top_relatorias_7
+    ]
 
-    case_trend_label = "—"
-    if case_trend:
-        change = case_trend.get("change")
-        year_label = case_trend.get("year")
-        if change is not None and year_label is not None:
-            sign = "+" if change >= 0 else ""
-            case_trend_label = f"{sign}{change:.1f}% em {year_label}"
+    for row in visible_ministers:
+        breakdown = row.get("citations_breakdown") or {}
+        row["citations_tooltip"] = (
+            "Decisões: "
+            f"{breakdown.get('decisoes', 0)}\n"
+            "Doutrinas: "
+            f"{breakdown.get('doutrina', 0)}\n"
+            "Legislações: "
+            f"{breakdown.get('legislacao', 0)}\n"
+            "Acórdãos: "
+            f"{breakdown.get('acordaos', 0)}"
+        )
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
 
     return render_template(
         "ministros.html",
-        title="CITO | Ministros",
+        title="CITO | Análise de Ministros",
+        brand_sub="Análise de Ministros",
         filters=filters,
         filter_params=filter_params,
         filter_params_no_minister=filter_params_no_minister,
         minister_options=minister_options,
         class_options=class_options,
+        rapporteur_options=rapporteur_options,
         total_ministers=total_ministers,
         ministers=visible_ministers,
-        ministers_totals=ministers_totals,
         limit=limit,
         next_limit=next_limit,
         show_more=total_ministers > limit,
-        total_cases=total_cases,
-        avg_citations=avg_citations,
-        vote_vencido_rate=vote_vencido_rate,
-        decision_distribution_pct=decision_distribution_pct,
-        citation_ratio=citation_ratio,
-        cases_per_year_avg=cases_per_year_avg,
-        case_trend_label=case_trend_label,
-        top_relatoria_minister=top_relatoria_minister,
-        chart_minister_labels=[row["minister"] for row in ministers_list[:10]],
-        chart_minister_values=[row["total_processes"] for row in ministers_list[:10]],
-        chart_decision_labels=[row["label"] for row in decision_distribution_pct],
-        chart_decision_values=[row["percent"] for row in decision_distribution_pct],
-        chart_year_labels=[row["year"] for row in cases_by_year],
-        chart_year_values=[row["total"] for row in cases_by_year],
+        avg_cases_per_minister=avg_cases_per_minister,
+        doutrinas_per_minister_case=doutrinas_per_minister_case,
+        legislacoes_per_minister_case=legislacoes_per_minister_case,
+        acordaos_per_minister_case=acordaos_per_minister_case,
+        chart_relatoria_labels=[row["minister_label"] for row in top_relatorias_10],
+        chart_relatoria_values=[row["total_relatorias"] for row in top_relatorias_10],
+        chart_relatoria_pct_labels=[row["minister_label"] for row in top_relatorias_7],
+        chart_relatoria_pct_values=relatoria_percentages,
     )
 
 
@@ -3523,7 +3470,8 @@ def ministro_detail() -> Any:
 
     return render_template(
         "ministro_detail.html",
-        title="CITO | Ministros | Detalhe",
+        title="CITO | Análise de Ministros | Detalhe",
+        brand_sub="Análise de Ministros",
         minister_name=minister_name,
         labels=MINISTER_DETAIL_LABELS,
         filter_params=filter_params,

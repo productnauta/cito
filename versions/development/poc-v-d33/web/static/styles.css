@@ -229,6 +229,11 @@ button:hover {
   align-items: stretch;
 }
 
+.kpi-row--line5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+}
+
 .kpi-row--charts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -555,6 +560,7 @@ tbody tr:hover {
 @media (max-width: 1024px) {
   .kpi-row--line1,
   .kpi-row--line2,
+  .kpi-row--line5,
   .split-grid {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }

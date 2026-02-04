@@ -2,12 +2,8 @@
 {% block content %}
   <section class="panel">
     <div class="panel-header">
-      <h1>Interface 2: Ministros</h1>
-      <span class="chip">Ministros: {{ total_ministers }}</span>
+      <h1>Análise de Ministros</h1>
     </div>
-    <p class="panel-copy">
-      Visao comparativa de ministros, com filtros combinaveis para classes, datas e processos.
-    </p>
     <form class="filters" method="get">
       <label class="field">
         <span>Ministro</span>
@@ -19,11 +15,24 @@
         </select>
       </label>
       <label class="field">
-        <span>Classe</span>
+        <span>Classe processual</span>
         <select name="case_class">
           <option value="">Todas</option>
           {% for value in class_options %}
             <option value="{{ value }}" {% if filters.case_class == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span>Ano de julgamento</span>
+        <input type="text" name="judgment_year" value="{{ filters.judgment_year }}" placeholder="Ex: 2021" />
+      </label>
+      <label class="field">
+        <span>Relator</span>
+        <select name="rapporteur">
+          <option value="">Todos</option>
+          {% for name in rapporteur_options %}
+            <option value="{{ name }}" {% if filters.rapporteur == name %}selected{% endif %}>{{ name }}</option>
           {% endfor %}
         </select>
       </label>
@@ -35,10 +44,6 @@
         <span>Data final</span>
         <input type="date" name="date_end" value="{{ filters.date_end }}" />
       </label>
-      <label class="field">
-        <span>Processo</span>
-        <input type="text" name="process" value="{{ filters.process }}" placeholder="Codigo ou numero" />
-      </label>
       <div class="actions">
         <button type="submit">Aplicar filtros</button>
         <a class="secondary" href="{{ url_for('ministros') }}">Limpar</a>
@@ -46,100 +51,73 @@
     </form>
   </section>
 
-  <section class="summary-cards">
+  <section class="kpi-row kpi-row--line5">
     <article class="card">
       <h3>Total de Ministros</h3>
       <p class="card-value">{{ total_ministers }}</p>
     </article>
     <article class="card">
-      <h3>Total de Casos</h3>
-      <p class="card-value">{{ total_cases }}</p>
-    </article>
-    <article class="card">
-      <h3>Casos por Ano (media)</h3>
+      <h3>Média de casos por Ministro</h3>
       <p class="card-value">
-        {% if cases_per_year_avg is not none %}
-          {{ cases_per_year_avg|round(1) }}
-        {% else %}
-          —
-        {% endif %}
-      </p>
-      <small class="card-meta">Evolucao: {{ case_trend_label }}</small>
-    </article>
-    <article class="card">
-      <h3>Media de Citacoes por Caso</h3>
-      <p class="card-value">
-        {% if avg_citations is not none %}
-          {{ avg_citations|round(2) }}
+        {% if avg_cases_per_minister is not none %}
+          {{ avg_cases_per_minister|round(2) }}
         {% else %}
           —
         {% endif %}
       </p>
     </article>
     <article class="card">
-      <h3>Ministro com Mais Relatorias</h3>
-      {% if top_relatoria_minister %}
-        <p class="card-value">
-          <a href="{{ url_for('ministro_detail', minister=top_relatoria_minister.minister, **filter_params_no_minister) }}">
-            {{ top_relatoria_minister.minister }}
-          </a>
-        </p>
-        <small class="card-meta">{{ top_relatoria_minister.total_relatorias }} relatorias</small>
-      {% else %}
-        <p class="card-value">—</p>
-      {% endif %}
-    </article>
-    <article class="card">
-      <h3>Taxa de Votos Vencidos</h3>
+      <h3>Doutrinas por Ministro</h3>
       <p class="card-value">
-        {% if vote_vencido_rate is not none %}
-          {{ vote_vencido_rate|round(1) }}%
+        {% if doutrinas_per_minister_case is not none %}
+          {{ doutrinas_per_minister_case|round(2) }}
         {% else %}
           —
         {% endif %}
       </p>
     </article>
     <article class="card">
-      <h3>Relacao Doutrina vs Legislacao</h3>
-      {% if citation_ratio %}
-        <p class="card-value">{{ citation_ratio.percent_doutrina|round(1) }}% doutrina</p>
-        <small class="card-meta">
-          {{ citation_ratio.doutrina }} doutrina / {{ citation_ratio.legislacao }} legislacao
-        </small>
-      {% else %}
-        <p class="card-value">—</p>
-      {% endif %}
+      <h3>Legislações por Ministro</h3>
+      <p class="card-value">
+        {% if legislacoes_per_minister_case is not none %}
+          {{ legislacoes_per_minister_case|round(2) }}
+        {% else %}
+          —
+        {% endif %}
+      </p>
     </article>
     <article class="card">
-      <h3>Distribuicao de Decisoes</h3>
-      <ol class="card-list">
-        {% for item in decision_distribution_pct[:3] %}
-          <li>{{ item.label }} ({{ item.percent|round(1) }}%)</li>
+      <h3>Acórdãos por Ministro</h3>
+      <p class="card-value">
+        {% if acordaos_per_minister_case is not none %}
+          {{ acordaos_per_minister_case|round(2) }}
         {% else %}
-          <li>—</li>
-        {% endfor %}
-      </ol>
+          —
+        {% endif %}
+      </p>
     </article>
   </section>
 
-  <section class="chart-grid">
+  <section class="split-grid">
     <article class="chart-card">
       <div class="panel-header">
-        <h2>Casos por Ministro</h2>
+        <h2>Ministros mais Ativos</h2>
       </div>
-      <canvas id="ministerCasesChart"></canvas>
+      {% if chart_relatoria_labels %}
+        <canvas id="mostActiveChart"></canvas>
+      {% else %}
+        <p class="empty">Sem dados para o recorte atual.</p>
+      {% endif %}
     </article>
     <article class="chart-card">
       <div class="panel-header">
-        <h2>Distribuicao de Decisoes</h2>
+        <h2>Relatorias por Ministro</h2>
       </div>
-      <canvas id="decisionChart"></canvas>
-    </article>
-    <article class="chart-card">
-      <div class="panel-header">
-        <h2>Evolucao Temporal de Casos</h2>
-      </div>
-      <canvas id="casesByYearChart"></canvas>
+      {% if chart_relatoria_pct_labels %}
+        <canvas id="relatoriaShareChart"></canvas>
+      {% else %}
+        <p class="empty">Sem dados para o recorte atual.</p>
+      {% endif %}
     </article>
   </section>
 
@@ -148,13 +126,12 @@
       <table>
         <thead>
           <tr>
-            <th>Ministro</th>
+            <th>Nome do Ministro</th>
             <th>Casos</th>
             <th>Relatorias</th>
-            <th>Citacoes</th>
-            <th>Voto vencido</th>
-            <th>Voto definido</th>
-            <th>Voto indefinido</th>
+            <th>Casos/Ano</th>
+            <th>Citado</th>
+            <th>Autores</th>
           </tr>
         </thead>
         <tbody>
@@ -162,29 +139,31 @@
             <tr>
               <td>
                 <a href="{{ url_for('ministro_detail', minister=row.minister, **filter_params_no_minister) }}">
-                  {{ row.minister }}
+                  {{ row.minister_label }}
                 </a>
               </td>
               <td>{{ row.total_processes }}</td>
               <td>{{ row.total_relatorias }}</td>
-              <td>{{ row.citations_total }}</td>
-              <td>{{ row.total_votes_vencido }}</td>
-              <td>{{ row.total_votes_defined }}</td>
-              <td>{{ row.total_votes_pending }}</td>
+              <td>
+                {% if row.cases_per_year is not none %}
+                  {{ row.cases_per_year|round(2) }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                <span title="{{ row.citations_tooltip }}">
+                  {{ row.citations_total }}
+                </span>
+              </td>
+              <td>
+                <span title="Número total de autores diferentes citados por ele">
+                  {{ row.authors_total }}
+                </span>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr>
-            <th>Total (filtros aplicados)</th>
-            <th>{{ ministers_totals.total_processes }}</th>
-            <th>{{ ministers_totals.total_relatorias }}</th>
-            <th>{{ ministers_totals.citations_total }}</th>
-            <th>{{ ministers_totals.total_votes_vencido }}</th>
-            <th>{{ ministers_totals.total_votes_defined }}</th>
-            <th>{{ ministers_totals.total_votes_pending }}</th>
-          </tr>
-        </tfoot>
       </table>
       {% if show_more %}
         <div class="actions">
@@ -198,27 +177,25 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    const ministerLabels = {{ chart_minister_labels|tojson }};
-    const ministerValues = {{ chart_minister_values|tojson }};
-    const decisionLabels = {{ chart_decision_labels|tojson }};
-    const decisionValues = {{ chart_decision_values|tojson }};
-    const yearLabels = {{ chart_year_labels|tojson }};
-    const yearValues = {{ chart_year_values|tojson }};
+    const relatoriaLabels = {{ chart_relatoria_labels|tojson }};
+    const relatoriaValues = {{ chart_relatoria_values|tojson }};
+    const relatoriaShareLabels = {{ chart_relatoria_pct_labels|tojson }};
+    const relatoriaShareValues = {{ chart_relatoria_pct_values|tojson }};
 
     if (typeof Chart !== "undefined") {
       Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
       Chart.defaults.color = "#1a1b1f";
 
-      const ministerCanvas = document.getElementById("ministerCasesChart");
-      if (ministerCanvas && ministerLabels.length) {
-        new Chart(ministerCanvas, {
+      const activeCanvas = document.getElementById("mostActiveChart");
+      if (activeCanvas && relatoriaLabels.length) {
+        new Chart(activeCanvas, {
           type: "bar",
           data: {
-            labels: ministerLabels,
+            labels: relatoriaLabels,
             datasets: [
               {
-                label: "Numero de Casos",
-                data: ministerValues,
+                label: "Total de relatorias",
+                data: relatoriaValues,
                 backgroundColor: "rgba(15, 107, 106, 0.4)",
                 borderColor: "rgba(15, 107, 106, 1)",
                 borderWidth: 1
@@ -234,52 +211,31 @@
         });
       }
 
-      const decisionCanvas = document.getElementById("decisionChart");
-      if (decisionCanvas && decisionLabels.length) {
-        new Chart(decisionCanvas, {
-          type: "pie",
+      const shareCanvas = document.getElementById("relatoriaShareChart");
+      if (shareCanvas && relatoriaShareLabels.length) {
+        const palette = [
+          "rgba(15, 107, 106, 0.7)",
+          "rgba(31, 140, 127, 0.7)",
+          "rgba(118, 179, 157, 0.7)",
+          "rgba(239, 203, 155, 0.7)",
+          "rgba(224, 112, 97, 0.7)",
+          "rgba(128, 93, 160, 0.7)",
+          "rgba(94, 117, 128, 0.7)"
+        ];
+        new Chart(shareCanvas, {
+          type: "doughnut",
           data: {
-            labels: decisionLabels,
+            labels: relatoriaShareLabels,
             datasets: [
               {
-                data: decisionValues,
-                backgroundColor: [
-                  "rgba(15, 107, 106, 0.7)",
-                  "rgba(31, 140, 127, 0.7)",
-                  "rgba(118, 179, 157, 0.7)",
-                  "rgba(239, 203, 155, 0.7)"
-                ]
-              }
-            ]
-          },
-          options: {
-            responsive: true
-          }
-        });
-      }
-
-      const yearCanvas = document.getElementById("casesByYearChart");
-      if (yearCanvas && yearLabels.length) {
-        new Chart(yearCanvas, {
-          type: "line",
-          data: {
-            labels: yearLabels,
-            datasets: [
-              {
-                label: "Casos por Ano",
-                data: yearValues,
-                borderColor: "rgba(31, 140, 127, 1)",
-                backgroundColor: "rgba(31, 140, 127, 0.2)",
-                tension: 0.3,
-                fill: true
+                data: relatoriaShareValues,
+                backgroundColor: palette
               }
             ]
           },
           options: {
             responsive: true,
-            scales: {
-              y: { beginAtZero: true }
-            }
+            cutout: "62%"
           }
         });
       }
