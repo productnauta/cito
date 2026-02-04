@@ -1,4 +1,0 @@
-# Configuração do Continue
-# Apenas os arquivos dentro do diretório especificado serão carregados como contexto
-include:
-  - versions/development/poc-v-d33/**
