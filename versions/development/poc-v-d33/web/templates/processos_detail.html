@@ -157,14 +157,14 @@
             <tr>
               <td>
                 {% if ref.author %}
-                  <a href="{{ url_for('doutrina_detail', kind='author', value=ref.author) }}">{{ ref.author }}</a>
+                  <a href="{{ url_for('analise_citacoes_detail', kind='author', value=ref.author) }}">{{ ref.author }}</a>
                 {% else %}
                   -
                 {% endif %}
               </td>
               <td>
                 {% if ref.publicationTitleDisplay or ref.publicationTitle %}
-                  <a href="{{ url_for('doutrina_detail', kind='title', value=ref.publicationTitleDisplay or ref.publicationTitle) }}">
+                  <a href="{{ url_for('analise_citacoes_detail', kind='title', value=ref.publicationTitleDisplay or ref.publicationTitle) }}">
                     {{ ref.publicationTitleDisplay or ref.publicationTitle }}
                   </a>
                 {% else %}

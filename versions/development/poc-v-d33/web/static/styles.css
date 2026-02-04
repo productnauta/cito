@@ -215,6 +215,26 @@ button:hover {
   gap: 16px;
 }
 
+.kpi-row {
+  display: grid;
+  gap: 16px;
+}
+
+.kpi-row--line1 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.kpi-row--line2 {
+  grid-template-columns: 1fr 1fr 1fr 2fr;
+  align-items: stretch;
+}
+
+.split-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
 .tag-cloud-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -336,6 +356,12 @@ button:hover {
   margin-bottom: 4px;
 }
 
+.kpi-chart {
+  margin-top: 12px;
+  width: 100% !important;
+  height: 220px !important;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -429,6 +455,19 @@ table {
   white-space: nowrap;
 }
 
+.heatmap-rotated {
+  height: 120px;
+  vertical-align: bottom;
+  padding-bottom: 12px;
+}
+
+.heatmap-rotated > a,
+.heatmap-rotated > span {
+  display: inline-block;
+  transform: rotate(-45deg);
+  transform-origin: left bottom;
+}
+
 .heatmap-label {
   text-align: left;
   font-weight: 600;
@@ -480,6 +519,15 @@ tbody tr:hover {
   background: #fdf8ee;
 }
 
+.truncate {
+  display: inline-block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 .empty {
   margin: 16px 0 0;
   color: var(--muted);
@@ -498,6 +546,14 @@ tbody tr:hover {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .kpi-row--line1,
+  .kpi-row--line2,
+  .split-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
 }
 
 .toggle-group {

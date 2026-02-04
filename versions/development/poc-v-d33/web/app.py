@@ -698,6 +698,79 @@ def _aggregate_titles(collection: Collection, filters: Dict[str, str]) -> List[D
     return list(collection.aggregate(pipeline))
 
 
+def _aggregate_works(collection: Collection, filters: Dict[str, str]) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    base_match = _build_match(filters)
+    if base_match:
+        pipeline.append({"$match": base_match})
+
+    pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
+
+    citation_match: Dict[str, Any] = {}
+    if filters.get("author"):
+        citation_match[f"{DOCTRINE_PATH}.author"] = _regex(filters["author"])
+    if filters.get("title"):
+        work_key = _resolve_work_key(filters["title"])
+        if work_key:
+            citation_match["$or"] = [
+                {f"{DOCTRINE_PATH}.workKey": work_key},
+                {f"{DOCTRINE_PATH}.publicationTitle": _regex(filters["title"])},
+                {f"{DOCTRINE_PATH}.publicationTitleNorm": normalize_title(filters["title"])},
+            ]
+        else:
+            citation_match[f"{DOCTRINE_PATH}.publicationTitle"] = _regex(filters["title"])
+    if citation_match:
+        pipeline.append({"$match": citation_match})
+
+    pipeline.append(
+        {
+            "$addFields": {
+                "_workKey": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.workKey",
+                        f"${DOCTRINE_PATH}.publicationTitleNorm",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_author": f"${DOCTRINE_PATH}.author",
+            }
+        }
+    )
+    pipeline.append({"$match": {"_workKey": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {
+                    "workKey": "$_workKey",
+                    "displayTitle": "$_displayTitle",
+                    "author": "$_author",
+                },
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append({"$sort": {"total": -1, "_id.displayTitle": 1}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_id.workKey",
+                "label": {"$first": "$_id.displayTitle"},
+                "author": {"$first": "$_id.author"},
+                "total": {"$sum": "$total"},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": 1, "author": 1, "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    return list(collection.aggregate(pipeline))
+
+
 def _aggregate_rapporteurs(collection: Collection, filters: Dict[str, str]) -> List[Dict[str, Any]]:
     pipeline: List[Dict[str, Any]] = []
     base_match = _build_match(filters)
@@ -1788,6 +1861,40 @@ def _aggregate_process_kpis(collection: Collection, match: Dict[str, Any]) -> Di
     }
 
 
+def _aggregate_reference_totals(collection: Collection, match: Dict[str, Any]) -> Dict[str, int]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}},
+                "_legislationCount": {"$size": {"$ifNull": [f"${LEGISLATION_PATH}", []]}},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$group": {
+                "_id": None,
+                "total_cases": {"$sum": 1},
+                "total_doctrines": {"$sum": "$_doctrineCount"},
+                "total_legislation": {"$sum": "$_legislationCount"},
+            }
+        }
+    )
+    result = list(collection.aggregate(pipeline))
+    if not result:
+        return {"total_cases": 0, "total_doctrines": 0, "total_legislation": 0}
+
+    row = result[0]
+    return {
+        "total_cases": int(row.get("total_cases") or 0),
+        "total_doctrines": int(row.get("total_doctrines") or 0),
+        "total_legislation": int(row.get("total_legislation") or 0),
+    }
+
+
 def _aggregate_author_insights(
     collection: Collection, author_name: str, match: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -2498,6 +2605,178 @@ def _normalize_ref_text(value: Any) -> str:
         return ""
     return " ".join(str(value).split()).strip()
 
+
+def _abbrev_minister_label(name: str) -> str:
+    parts = [p for p in re.split(r"\s+", str(name or "").strip()) if p]
+    if not parts:
+        return str(name or "").strip()
+    first = parts[0]
+    last = parts[-1]
+    initial = first[0].upper() if first else ""
+    return f"{initial}. {last}" if last else f"{initial}."
+
+
+def _abbrev_author_label(name: str) -> str:
+    parts = [p for p in re.split(r"\s+", str(name or "").strip()) if p]
+    if len(parts) <= 1:
+        return str(name or "").strip()
+
+    particles = {"da", "de", "do", "das", "dos", "e"}
+    surname_parts = [parts[-1]]
+    if len(parts) >= 2 and parts[-2].casefold() in particles:
+        surname_parts.insert(0, parts[-2])
+        name_parts = parts[:-2]
+    else:
+        name_parts = parts[:-1]
+
+    initials = []
+    for token in name_parts:
+        clean = re.sub(r"[^A-Za-zÀ-ÿ]", "", token)
+        if not clean or clean.casefold() in particles:
+            continue
+        initials.append(f"{clean[0].upper()}.")
+    surname = " ".join(surname_parts)
+    if not initials:
+        return surname
+    return " ".join(initials + [surname])
+
+
+def _guess_legislation_type(identifier: str) -> str:
+    if not identifier:
+        return ""
+    head = str(identifier).strip().split("-", 1)[0].strip()
+    return head
+
+
+def _normalize_legislation_type(raw: str) -> str:
+    if not raw:
+        return "—"
+    clean = str(raw).strip()
+    key = re.sub(r"[^A-Za-zÀ-ÿ]", "", clean).upper()
+    mapping = {
+        "CF": "Constituição",
+        "CONSTITUICAO": "Constituição",
+        "CONSTITUIÇÃO": "Constituição",
+        "CODIGO": "Código",
+        "CÓDIGO": "Código",
+        "LEI": "Lei",
+        "DECRETO": "Decreto",
+        "EMENDA": "Emenda",
+        "RESOLUCAO": "Resolução",
+        "RESOLUÇÃO": "Resolução",
+        "PORTARIA": "Portaria",
+        "REGIMENTO": "Regimento",
+    }
+    if key in mapping:
+        return mapping[key]
+    if clean.isupper():
+        return clean.title()
+    return clean
+
+
+def _extract_year(value: str) -> Optional[int]:
+    if not value:
+        return None
+    match = re.search(r"(19|20)\\d{2}", str(value))
+    return int(match.group(0)) if match else None
+
+
+def _aggregate_legislations(
+    collection: Collection, match: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_normId": f"${LEGISLATION_PATH}.normIdentifier",
+                "_normType": f"${LEGISLATION_PATH}.normType",
+            }
+        }
+    )
+    pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {"normId": "$_normId", "normType": "$_normType"},
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    rows = list(collection.aggregate(pipeline))
+    if not rows:
+        return []
+
+    from collections import Counter
+
+    totals: Dict[str, int] = {}
+    type_counts: Dict[str, Counter[str]] = {}
+    for row in rows:
+        norm_id = _normalize_ref_text(row.get("_id", {}).get("normId"))
+        if not norm_id:
+            continue
+        norm_type = _normalize_ref_text(row.get("_id", {}).get("normType"))
+        total = int(row.get("total") or 0)
+        totals[norm_id] = totals.get(norm_id, 0) + total
+        if norm_type:
+            type_counts.setdefault(norm_id, Counter())[norm_type] += total
+
+    items: List[Dict[str, Any]] = []
+    for norm_id, total in totals.items():
+        norm_type = ""
+        if norm_id in type_counts and type_counts[norm_id]:
+            norm_type = type_counts[norm_id].most_common(1)[0][0]
+        if not norm_type:
+            norm_type = _guess_legislation_type(norm_id)
+        items.append(
+            {
+                "label": norm_id,
+                "total": total,
+                "norm_type": _normalize_legislation_type(norm_type),
+            }
+        )
+    items.sort(key=lambda x: (-x["total"], x["label"]))
+    return items
+
+
+def _aggregate_acordaos(
+    collection: Collection, match: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    from collections import Counter
+
+    projection = {"caseData.notesReferences": 1}
+    cursor = collection.find(match or {}, projection=projection)
+
+    counter: Counter[str] = Counter()
+    for doc in cursor:
+        case_data = doc.get("caseData") or {}
+        notes_refs = case_data.get("notesReferences") or []
+        for note in notes_refs:
+            if not isinstance(note, dict):
+                continue
+            if str(note.get("noteType") or "").strip() != "stf_acordao":
+                continue
+            items = note.get("items") if isinstance(note.get("items"), list) else []
+            if items:
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_ref = _normalize_ref_text(item.get("rawRef"))
+                    if raw_ref:
+                        counter[raw_ref] += 1
+            else:
+                raw_ref = _normalize_ref_text(note.get("rawLine"))
+                if raw_ref:
+                    counter[raw_ref] += 1
+
+    items = [
+        {"label": key, "total": total, "year": _extract_year(key)}
+        for key, total in counter.items()
+    ]
+    items.sort(key=lambda x: (-x["total"], x["label"]))
+    return items
 
 def _compute_minister_reference_stats(
     collection: Collection, match: Dict[str, Any]

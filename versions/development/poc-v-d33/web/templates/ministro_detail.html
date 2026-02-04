@@ -78,7 +78,7 @@
             {% for row in top_doctrine %}
             <tr>
               <td>
-                <a href="{{ url_for('doutrina_detail', kind='author', value=row.label) }}">{{ row.label }}</a>
+                <a href="{{ url_for('analise_citacoes_detail', kind='author', value=row.label) }}">{{ row.label }}</a>
               </td>
               <td>{{ row.total }}</td>
             </tr>

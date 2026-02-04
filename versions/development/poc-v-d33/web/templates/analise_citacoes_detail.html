@@ -9,7 +9,7 @@
       Lista de processos que referenciam a citacao selecionada.
     </p>
     <div class="actions">
-      <a class="secondary" href="{{ url_for('doutrina', **filter_params) }}">Voltar ao painel</a>
+      <a class="secondary" href="{{ url_for('analise_citacoes', **filter_params) }}">Voltar ao painel</a>
     </div>
   </section>
 
@@ -83,7 +83,7 @@
           <button type="submit">Aplicar filtros</button>
           <a
             class="secondary"
-            href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, **filter_params) }}"
+            href="{{ url_for('analise_citacoes_detail', kind=detail_key, value=detail_value, **filter_params) }}"
           >
             Limpar
           </a>
@@ -122,7 +122,7 @@
                 </td>
                 <td>
                   {% if item.work %}
-                    <a href="{{ url_for('doutrina_detail', kind='title', value=item.work) }}">{{ item.work }}</a>
+                    <a href="{{ url_for('analise_citacoes_detail', kind='title', value=item.work) }}">{{ item.work }}</a>
                   {% else %}
                     -
                   {% endif %}
@@ -146,7 +146,7 @@
           <div class="actions">
             <a
               class="secondary"
-              href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
+              href="{{ url_for('analise_citacoes_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
             >
               Ver mais
             </a>
@@ -199,7 +199,7 @@
           <div class="actions">
             <a
               class="secondary"
-              href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
+              href="{{ url_for('analise_citacoes_detail', kind=detail_key, value=detail_value, limit=next_limit, **filter_params) }}"
             >
               Ver mais
             </a>
