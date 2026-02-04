@@ -273,6 +273,41 @@ button:hover {
   font-weight: 700;
 }
 
+.author-donut {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.4fr);
+  gap: 24px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+.author-donut__chart {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 260px;
+}
+
+.author-donut__chart canvas {
+  width: 100% !important;
+  max-width: 320px;
+  height: auto !important;
+  aspect-ratio: 1 / 1;
+}
+
+.author-donut__table table {
+  margin-top: 0;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-right: 8px;
+}
+
 .kpi-row {
   display: grid;
   gap: 16px;
@@ -639,6 +674,10 @@ tbody tr:hover {
 
   .indicator-bar {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+
+  .author-donut {
+    grid-template-columns: 1fr;
   }
 }
 

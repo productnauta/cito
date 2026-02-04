@@ -3280,8 +3280,39 @@ def analise_citacoes() -> Any:
         "rows": filtered_rows,
     }
 
-    top_authors = authors[:6]
+    top_authors = authors[:15]
     top_acordaos = acordaos[:10]
+    top_author_total = sum(row.get("total", 0) for row in top_authors)
+    author_palette = [
+        "#0f6b6a",
+        "#1f8c7f",
+        "#76b39d",
+        "#efcb9b",
+        "#e07061",
+        "#805da0",
+        "#5e7580",
+        "#2d7d6f",
+        "#c7b59c",
+        "#d1a77a",
+        "#4e7c59",
+        "#9aa6b2",
+        "#b85c38",
+        "#7a9f8b",
+        "#8f6f3f",
+    ]
+    top_author_rows = []
+    for idx, row in enumerate(top_authors):
+        total = int(row.get("total", 0))
+        percent = (total / top_author_total * 100) if top_author_total else 0
+        color = author_palette[idx % len(author_palette)]
+        top_author_rows.append(
+            {
+                "label": row.get("label"),
+                "total": total,
+                "percent": percent,
+                "color": color,
+            }
+        )
     filter_params = {k: v for k, v in filters.items() if v}
     next_author_limit = author_limit + 50
     next_title_limit = title_limit + 50
@@ -3304,6 +3335,8 @@ def analise_citacoes() -> Any:
         acordaos_per_case=acordaos_per_case,
         top_author_labels=[row.get("label") for row in top_authors],
         top_author_values=[row.get("total") for row in top_authors],
+        top_author_colors=[row["color"] for row in top_author_rows],
+        top_author_rows=top_author_rows,
         top_acordao_labels=[row.get("label") for row in top_acordaos],
         top_acordao_values=[row.get("total") for row in top_acordaos],
         heatmap=heatmap,

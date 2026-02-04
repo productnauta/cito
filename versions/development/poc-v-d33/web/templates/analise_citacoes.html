@@ -42,23 +42,38 @@
       <h2>Indicadores Médios</h2>
     </div>
     <div class="indicator-bar">
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Quantidade total de autores distintos citados nos processos do recorte atual."
+      >
         <span class="indicator-label">Total de Autores</span>
         <span class="indicator-value">{{ authors_total }}</span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Quantidade total de obras distintas citadas nos processos do recorte atual."
+      >
         <span class="indicator-label">Total de Obras</span>
         <span class="indicator-value">{{ titles_total }}</span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Quantidade total de legislações únicas citadas nos processos do recorte atual."
+      >
         <span class="indicator-label">Total de Legislações</span>
         <span class="indicator-value">{{ legislations_total }}</span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Quantidade total de acórdãos únicos citados nos processos do recorte atual."
+      >
         <span class="indicator-label">Total de Acórdãos</span>
         <span class="indicator-value">{{ acordaos_total }}</span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Média de citações doutrinárias por processo no recorte atual."
+      >
         <span class="indicator-label">Doutrinas por Caso</span>
         <span class="indicator-value">
           {% if doctrines_per_case is not none %}
@@ -68,7 +83,10 @@
           {% endif %}
         </span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Média de citações de legislação por processo no recorte atual."
+      >
         <span class="indicator-label">Legislações por Caso</span>
         <span class="indicator-value">
           {% if legislations_per_case is not none %}
@@ -78,7 +96,10 @@
           {% endif %}
         </span>
       </div>
-      <div class="indicator-card">
+      <div
+        class="indicator-card"
+        title="Média de citações de acórdãos por processo no recorte atual."
+      >
         <span class="indicator-label">Acórdãos por Caso</span>
         <span class="indicator-value">
           {% if acordaos_per_case is not none %}
@@ -91,23 +112,53 @@
     </div>
   </section>
 
-  <section class="kpi-row kpi-row--charts">
-    <article class="card">
-      <h3>Autores mais citados</h3>
-      {% if top_author_labels %}
-        <canvas id="topAuthorsChart" class="kpi-chart"></canvas>
-      {% else %}
-        <p class="empty">Sem dados de autores para o recorte atual.</p>
-      {% endif %}
-    </article>
-    <article class="card">
-      <h3>Acórdãos mais citados</h3>
-      {% if top_acordao_labels %}
-        <canvas id="topAcordaosChart" class="kpi-chart"></canvas>
-      {% else %}
-        <p class="empty">Sem dados de acórdãos para o recorte atual.</p>
-      {% endif %}
-    </article>
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Autores Mais Citados</h2>
+    </div>
+    {% if top_author_rows %}
+      <div class="author-donut">
+        <div class="author-donut__chart">
+          <canvas id="topAuthorsChart"></canvas>
+        </div>
+        <div class="author-donut__table">
+          <table>
+            <thead>
+              <tr>
+                <th>Autor</th>
+                <th>Número de citações</th>
+                <th>Percentual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in top_author_rows %}
+                <tr>
+                  <td>
+                    <span class="legend-dot" style="background-color: {{ row.color }}"></span>
+                    {{ row.label }}
+                  </td>
+                  <td>{{ row.total }}</td>
+                  <td>{{ row.percent|round(1) }}%</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <p class="empty">Sem dados de autores para o recorte atual.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Acórdãos mais citados</h2>
+    </div>
+    {% if top_acordao_labels %}
+      <canvas id="topAcordaosChart" class="kpi-chart"></canvas>
+    {% else %}
+      <p class="empty">Sem dados de acórdãos para o recorte atual.</p>
+    {% endif %}
   </section>
 
   <section class="panel">
@@ -364,6 +415,7 @@
   <script>
     const topAuthorLabels = {{ top_author_labels|tojson }};
     const topAuthorValues = {{ top_author_values|tojson }};
+    const topAuthorColors = {{ top_author_colors|tojson }};
     const topAcordaoLabels = {{ top_acordao_labels|tojson }};
     const topAcordaoValues = {{ top_acordao_values|tojson }};
 
@@ -373,28 +425,26 @@
 
       const chartCanvas = document.getElementById("topAuthorsChart");
       if (chartCanvas && topAuthorLabels.length) {
-        const palette = [
-          "rgba(15, 107, 106, 0.7)",
-          "rgba(31, 140, 127, 0.7)",
-          "rgba(118, 179, 157, 0.7)",
-          "rgba(239, 203, 155, 0.7)",
-          "rgba(224, 112, 97, 0.7)",
-          "rgba(128, 93, 160, 0.7)"
-        ];
-
         new Chart(chartCanvas, {
-          type: "pie",
+          type: "doughnut",
           data: {
             labels: topAuthorLabels,
             datasets: [
               {
                 data: topAuthorValues,
-                backgroundColor: palette
+                backgroundColor: topAuthorColors
               }
             ]
           },
           options: {
-            responsive: true
+            responsive: true,
+            cutout: "62%",
+            plugins: {
+              legend: {
+                display: false
+              }
+            },
+            maintainAspectRatio: true
           }
         });
       }
