@@ -49,6 +49,14 @@
           {% endfor %}
         </datalist>
       </label>
+      <label class="field">
+        <span>Legislacao</span>
+        <input type="text" name="legislation_norm" value="{{ filters.legislation_norm }}" placeholder="Ex: CF-1988" />
+      </label>
+      <label class="field">
+        <span>Acordao</span>
+        <input type="text" name="acordao_ref" value="{{ filters.acordao_ref }}" placeholder="Ex: ADI 1234" />
+      </label>
       <div class="actions">
         <button type="submit">Aplicar filtros</button>
         <a class="secondary" href="{{ url_for('processos') }}">Limpar</a>
@@ -95,6 +103,68 @@
         {% endif %}
       </p>
       <span class="card-meta">citacoes de legislacao/caso</span>
+    </article>
+  </section>
+
+  <section class="tag-cloud-grid">
+    <article class="panel tag-cloud-card">
+      <div class="panel-header">
+        <h2>Doutrinas</h2>
+      </div>
+      {% if tag_clouds.doctrine %}
+        <div class="tag-cloud">
+          {% for tag in tag_clouds.doctrine %}
+            <a
+              class="tag-pill {{ tag.size_class }}"
+              href="{{ url_for('processos', author=tag.label, **filter_params_no_author) }}"
+            >
+              {{ tag.label }} ({{ tag.total }})
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">Sem dados de doutrinas.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel tag-cloud-card">
+      <div class="panel-header">
+        <h2>Legislacao</h2>
+      </div>
+      {% if tag_clouds.legislation %}
+        <div class="tag-cloud">
+          {% for tag in tag_clouds.legislation %}
+            <a
+              class="tag-pill {{ tag.size_class }}"
+              href="{{ url_for('processos', legislation_norm=tag.label, **filter_params_no_legislation) }}"
+            >
+              {{ tag.label }} ({{ tag.total }})
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">Sem dados de legislacao.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel tag-cloud-card">
+      <div class="panel-header">
+        <h2>Acordaos</h2>
+      </div>
+      {% if tag_clouds.acordao %}
+        <div class="tag-cloud">
+          {% for tag in tag_clouds.acordao %}
+            <a
+              class="tag-pill {{ tag.size_class }}"
+              href="{{ url_for('processos', acordao_ref=tag.label, **filter_params_no_acordao) }}"
+            >
+              {{ tag.label }} ({{ tag.total }})
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="empty">Sem dados de acordaos.</p>
+      {% endif %}
     </article>
   </section>
 

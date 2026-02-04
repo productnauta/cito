@@ -215,6 +215,58 @@ button:hover {
   gap: 16px;
 }
 
+.tag-cloud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.tag-cloud-card .panel-header {
+  margin-bottom: 6px;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #e3f4f2;
+  color: #0f5b57;
+  border: 1px solid #c9e6e2;
+  font-size: 12px;
+  font-weight: 600;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.tag-pill:hover {
+  text-decoration: none;
+  background: #d6efe9;
+  transform: translateY(-1px);
+}
+
+.tag-pill--sm {
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+.tag-pill--md {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.tag-pill--lg {
+  font-size: 13px;
+  padding: 7px 14px;
+}
+
 .card {
   background: var(--card);
   border-radius: var(--radius);

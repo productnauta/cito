@@ -3,7 +3,7 @@
   <section class="panel">
     <div class="panel-header">
       <h1>Ministro: {{ minister_name }}</h1>
-      <span class="chip">Analitico</span>
+      <span class="chip">{{ labels.summary_analytics }}</span>
     </div>
     <p class="panel-copy">
       Indicadores consolidados e rankings de referencias vinculadas ao ministro.
@@ -15,62 +15,38 @@
 
   <section class="stats-grid">
     <article class="panel stat-card">
-      <span class="stat-label">Total de processos</span>
+      <span class="stat-label">{{ labels.total_processes }}</span>
       <strong class="stat-value">{{ total_processes }}</strong>
     </article>
     <article class="panel stat-card">
-      <span class="stat-label">Total de relatorias</span>
-      <strong class="stat-value">{{ total_relatorias }}</strong>
-    </article>
-    <article class="panel stat-card">
-      <span class="stat-label">Total de citacoes recebidas</span>
+      <span class="stat-label">{{ labels.total_relatorias }}</span>
       <strong class="stat-value">
-        <a href="{{ url_for('doutrina', minister=minister_name) }}">Doutrinas citadas ({{ total_citations }})</a>
+        <a href="{{ url_for('processos', rapporteur=minister_name) }}">{{ total_relatorias }}</a>
       </strong>
     </article>
-  </section>
-
-  <section class="panel">
-    <div class="panel-header">
-      <h2>Distribuicao por decisao final</h2>
-    </div>
-    {% if decision_distribution %}
-      <table>
-        <thead>
-          <tr>
-            <th>Decisao</th>
-            <th>Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in decision_distribution %}
-            <tr>
-              <td>{{ row.label }}</td>
-              <td>{{ row.total }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="empty">Sem dados de decisao para os filtros atuais.</p>
-    {% endif %}
+    <article class="panel stat-card">
+      <span class="stat-label">{{ labels.citations_made }}</span>
+      <strong class="stat-value">
+        <a href="{{ url_for('doutrina', minister=minister_name) }}">{{ total_citations }}</a>
+      </strong>
+    </article>
   </section>
 
   <section class="grid">
     <article class="panel">
       <div class="panel-header">
-        <h2>Top 5 - Doutrina</h2>
+        <h2>{{ labels.doutrinas }}</h2>
       </div>
       {% if top_doctrine %}
         <table>
           <thead>
             <tr>
-              <th>Autor</th>
-              <th>Total de citacoes</th>
+              <th>{{ labels.th_autor }}</th>
+              <th>{{ labels.th_total }}</th>
             </tr>
           </thead>
           <tbody>
-          {% for row in top_doctrine %}
+            {% for row in top_doctrine %}
             <tr>
               <td>
                 <a href="{{ url_for('doutrina_detail', kind='author', value=row.label) }}">{{ row.label }}</a>
@@ -87,14 +63,14 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>Top 5 - Normas e acordaos</h2>
+        <h2>{{ labels.acordaos }}</h2>
       </div>
       {% if top_norms %}
         <table>
           <thead>
             <tr>
-              <th>Referencia</th>
-              <th>Total de citacoes</th>
+              <th>{{ labels.th_acordao }}</th>
+              <th>{{ labels.th_total }}</th>
             </tr>
           </thead>
           <tbody>
@@ -113,26 +89,20 @@
 
     <article class="panel">
       <div class="panel-header">
-        <h2>Top 5 - Legislacoes citadas</h2>
+        <h2>{{ labels.legislacoes }}</h2>
       </div>
       {% if top_legislation %}
         <table>
           <thead>
             <tr>
-              <th>Norma</th>
-              <th>Total</th>
+              <th>{{ labels.th_legislacao }}</th>
+              <th>{{ labels.th_total }}</th>
             </tr>
           </thead>
           <tbody>
             {% for row in top_legislation %}
               <tr>
-                <td>
-                  {% if row.description and row.description != row.identifier %}
-                    {{ row.identifier }} — {{ row.description }}
-                  {% else %}
-                    {{ row.identifier }}
-                  {% endif %}
-                </td>
+                <td>{{ row.label }}</td>
                 <td>{{ row.total }}</td>
               </tr>
             {% endfor %}
@@ -144,38 +114,66 @@
     </article>
   </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <h2>Processos em que foi relator</h2>
-      <span class="chip">{{ relatoria_cases|length }} processos</span>
-    </div>
-    {% if relatoria_cases %}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Titulo do caso</th>
-            <th>Processo</th>
-            <th>Decisao</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in relatoria_cases %}
+  <section class="grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ labels.decisoes }}</h2>
+      </div>
+      {% if decision_distribution %}
+        <table>
+          <thead>
             <tr>
-              <td>
-                {% if row.stf_id %}
-                  <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
-                {% else %}
-                  {{ row.case_title }}
-                {% endif %}
-              </td>
-              <td>{{ row.process_label }}</td>
-              <td>{{ row.decision_final }}</td>
+              <th>{{ labels.th_decisao }}</th>
+              <th>{{ labels.th_total }}</th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="empty">Nenhum processo encontrado para este ministro.</p>
-    {% endif %}
+          </thead>
+          <tbody>
+            {% for row in decision_distribution %}
+              <tr>
+                <td>{{ row.label }}</td>
+                <td>{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Sem dados de decisao para os filtros atuais.</p>
+      {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>{{ labels.relatoria_processos }}</h2>
+        <span class="chip">{{ relatoria_cases|length }} processos</span>
+      </div>
+      {% if relatoria_cases %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>{{ labels.th_titulo_caso }}</th>
+              <th>{{ labels.th_processo }}</th>
+              <th>{{ labels.th_decisao }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in relatoria_cases %}
+              <tr>
+                <td>
+                  {% if row.stf_id %}
+                    <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
+                  {% else %}
+                    {{ row.case_title }}
+                  {% endif %}
+                </td>
+                <td>{{ row.process_label }}</td>
+                <td>{{ row.decision_final }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Nenhum processo encontrado para este ministro.</p>
+      {% endif %}
+    </article>
   </section>
 {% endblock %}

@@ -59,6 +59,25 @@ QUERY_CONFIG_PATH = CONFIG_DIR / "query.yaml"
 PIPELINE_CONFIG_PATH = CONFIG_DIR / "pipeline.yaml"
 PIPELINE_JOBS_COLLECTION = "pipeline_jobs"
 
+MINISTER_DETAIL_LABELS = {
+    "summary_analytics": "Analítico",
+    "total_processes": "Total de processos",
+    "total_relatorias": "Total de relatorias",
+    "citations_made": "Citações Feitas",
+    "doutrinas": "Doutrinas",
+    "acordaos": "Acórdãos",
+    "legislacoes": "Legislações",
+    "decisoes": "Decisões",
+    "relatoria_processos": "Relatoria dos Processos",
+    "th_autor": "Autor",
+    "th_total": "Total",
+    "th_acordao": "Acórdão",
+    "th_legislacao": "Legislação",
+    "th_decisao": "Decisão",
+    "th_titulo_caso": "Título do caso",
+    "th_processo": "Processo",
+}
+
 WEB_LOG_DIR = BASE_DIR / "core" / "logs"
 _WEB_LOG_STAMP = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 WEB_LOG_FILE = WEB_LOG_DIR / f"{_WEB_LOG_STAMP}-web-actions.log"
@@ -336,6 +355,8 @@ def _get_process_filters(args: Dict[str, Any]) -> Dict[str, str]:
         "date_start": str(args.get("date_start") or "").strip(),
         "date_end": str(args.get("date_end") or "").strip(),
         "author": str(args.get("author") or "").strip(),
+        "legislation_norm": str(args.get("legislation_norm") or "").strip(),
+        "acordao_ref": str(args.get("acordao_ref") or "").strip(),
     }
 
 
@@ -831,6 +852,8 @@ def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
     if rapporteur:
         rapporteur = normalize_minister_name(rapporteur) or rapporteur
     author = filters.get("author") or ""
+    legislation_norm = filters.get("legislation_norm") or ""
+    acordao_ref = filters.get("acordao_ref") or ""
     date_start = _parse_date_value(filters.get("date_start") or "")
     date_end = _parse_date_value(filters.get("date_end") or "")
 
@@ -870,6 +893,28 @@ def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
     if author:
         and_clauses.append(
             {DOCTRINE_PATH: {"$elemMatch": {"author": _regex(author)}}}
+        )
+
+    if legislation_norm:
+        rx = _regex(legislation_norm)
+        and_clauses.append(
+            {LEGISLATION_PATH: {"$elemMatch": {"normIdentifier": rx}}}
+        )
+
+    if acordao_ref:
+        rx = _regex(acordao_ref)
+        and_clauses.append(
+            {
+                "caseData.notesReferences": {
+                    "$elemMatch": {
+                        "noteType": "stf_acordao",
+                        "$or": [
+                            {"rawLine": rx},
+                            {"items": {"$elemMatch": {"rawRef": rx}}},
+                        ],
+                    }
+                }
+            }
         )
 
     if date_start or date_end:
@@ -932,6 +977,112 @@ def _fetch_processes(collection: Collection, match: Dict[str, Any], limit: int =
                 "stf_id": stf_id,
             }
         )
+    return rows
+
+
+def _tag_size_class(value: int, max_value: int) -> str:
+    if max_value <= 0:
+        return "tag-pill--sm"
+    ratio = value / max_value
+    if ratio >= 0.8:
+        return "tag-pill--lg"
+    if ratio >= 0.5:
+        return "tag-pill--md"
+    return "tag-pill--sm"
+
+
+def _aggregate_doctrine_tag_cloud(
+    collection: Collection, match: Dict[str, Any], limit: int
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
+    pipeline.append({"$match": {f"{DOCTRINE_PATH}.author": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": f"${DOCTRINE_PATH}.author",
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    rows = list(collection.aggregate(pipeline))
+    max_total = max((row.get("total", 0) for row in rows), default=0)
+    for row in rows:
+        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
+    return rows
+
+
+def _aggregate_legislation_tag_cloud(
+    collection: Collection, match: Dict[str, Any], limit: int
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
+    pipeline.append(
+        {"$addFields": {"_normId": f"${LEGISLATION_PATH}.normIdentifier"}}
+    )
+    pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_normId",
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    rows = list(collection.aggregate(pipeline))
+    max_total = max((row.get("total", 0) for row in rows), default=0)
+    for row in rows:
+        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
+    return rows
+
+
+def _aggregate_acordao_tag_cloud(
+    collection: Collection, match: Dict[str, Any], limit: int
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": "$caseData.notesReferences"})
+    pipeline.append({"$match": {"caseData.notesReferences.noteType": "stf_acordao"}})
+    pipeline.append({"$unwind": "$caseData.notesReferences.items"})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_rawRef": {
+                    "$trim": {"input": "$caseData.notesReferences.items.rawRef"}
+                }
+            }
+        }
+    )
+    pipeline.append({"$match": {"_rawRef": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_rawRef",
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "label": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    rows = list(collection.aggregate(pipeline))
+    max_total = max((row.get("total", 0) for row in rows), default=0)
+    for row in rows:
+        row["size_class"] = _tag_size_class(int(row.get("total", 0)), max_total)
     return rows
 
 
@@ -1646,55 +1797,12 @@ def _aggregate_minister_detail(
     relatoria_match = _build_relatoria_match(filters, minister_name)
     total_relatorias = _count_distinct_cases(collection, relatoria_match)
 
-    citations_pipeline = [
-        {"$match": match},
-        {"$addFields": {"_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}}}},
-        {"$group": {"_id": None, "total": {"$sum": "$_doctrineCount"}}},
-    ]
-    citations_result = list(collection.aggregate(citations_pipeline))
-    total_citations = int(citations_result[0]["total"]) if citations_result else 0
-
-    decision_pipeline = [
-        {"$match": match},
-        {
-            "$addFields": {
-                "_finalDecision": {
-                    "$ifNull": [f"${DECISION_RESULT_PATH}", "Não informado"]
-                }
-            }
-        },
-        {"$group": {"_id": "$_finalDecision", "total": {"$sum": 1}}},
-        {"$project": {"_id": 0, "label": "$_id", "total": 1}},
-        {"$sort": {"total": -1, "label": 1}},
-    ]
-    decision_distribution = list(collection.aggregate(decision_pipeline))
-
-    doctrine_pipeline = [
-        {"$match": match},
-        {"$unwind": f"${DOCTRINE_PATH}"},
-        {"$match": {f"{DOCTRINE_PATH}.author": {"$nin": [None, ""]}}},
-        {"$group": {"_id": f"${DOCTRINE_PATH}.author", "total": {"$sum": 1}}},
-        {"$project": {"_id": 0, "label": "$_id", "total": 1}},
-        {"$sort": {"total": -1, "label": 1}},
-        {"$limit": 5},
-    ]
-    top_doctrine = list(collection.aggregate(doctrine_pipeline))
-
-    norms_pipeline = [
-        {"$match": match},
-        {"$unwind": f"${CITATIONS_PATH}"},
-        {
-            "$match": {
-                f"{CITATIONS_PATH}.citationType": {"$in": norm_citation_types},
-                f"{CITATIONS_PATH}.citationName": {"$nin": [None, ""]},
-            }
-        },
-        {"$group": {"_id": f"${CITATIONS_PATH}.citationName", "total": {"$sum": 1}}},
-        {"$project": {"_id": 0, "label": "$_id", "total": 1}},
-        {"$sort": {"total": -1, "label": 1}},
-        {"$limit": 5},
-    ]
-    top_norms = list(collection.aggregate(norms_pipeline))
+    citation_stats = _compute_minister_reference_stats(collection, match)
+    total_citations = citation_stats["total_citations"]
+    decision_distribution = citation_stats["decision_distribution"]
+    top_doctrine = citation_stats["top_doctrine"]
+    top_norms = citation_stats["top_acordaos"]
+    top_legislation = citation_stats["top_legislation"]
 
     return {
         "total_processes": total_processes,
@@ -1703,6 +1811,7 @@ def _aggregate_minister_detail(
         "decision_distribution": decision_distribution,
         "top_doctrine": top_doctrine,
         "top_norms": top_norms,
+        "top_legislation": top_legislation,
     }
 
 
@@ -1713,21 +1822,12 @@ def _aggregate_top_legislation_for_minister(
     if match:
         pipeline.append({"$match": match})
     pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
-    pipeline.append(
-        {
-            "$addFields": {
-                "_normId": {
-                    "$ifNull": [f"${LEGISLATION_PATH}.normIdentifier", f"${LEGISLATION_PATH}.normDescription"]
-                },
-                "_normDesc": f"${LEGISLATION_PATH}.normDescription",
-            }
-        }
-    )
+    pipeline.append({"$addFields": {"_normId": f"${LEGISLATION_PATH}.normIdentifier"}})
     pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
     pipeline.append(
         {
             "$group": {
-                "_id": {"identifier": "$_normId", "description": "$_normDesc"},
+                "_id": "$_normId",
                 "total": {"$sum": 1},
             }
         }
@@ -1736,8 +1836,7 @@ def _aggregate_top_legislation_for_minister(
         {
             "$project": {
                 "_id": 0,
-                "identifier": "$_id.identifier",
-                "description": "$_id.description",
+                "identifier": "$_id",
                 "total": 1,
             }
         }
@@ -1746,6 +1845,128 @@ def _aggregate_top_legislation_for_minister(
     if limit:
         pipeline.append({"$limit": limit})
     return list(collection.aggregate(pipeline))
+
+
+def _normalize_ref_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return " ".join(str(value).split()).strip()
+
+
+def _compute_minister_reference_stats(
+    collection: Collection, match: Dict[str, Any]
+) -> Dict[str, Any]:
+    from collections import Counter
+
+    projection = {
+        "identity.stfDecisionId": 1,
+        "caseData.legislationReferences": 1,
+        "caseData.doctrineReferences": 1,
+        "caseData.notesReferences": 1,
+        DECISION_RESULT_PATH: 1,
+    }
+    cursor = collection.find(match, projection=projection)
+
+    total_citations = 0
+    legislation_counter: Counter[str] = Counter()
+    doctrine_counter: Counter[str] = Counter()
+    acordao_counter: Counter[str] = Counter()
+    decision_counter: Counter[str] = Counter()
+
+    for doc in cursor:
+        case_id = (doc.get("identity") or {}).get("stfDecisionId") or str(doc.get("_id"))
+        seen = set()
+
+        case_data = doc.get("caseData") or {}
+        legislation_refs = case_data.get("legislationReferences") or []
+        doctrine_refs = case_data.get("doctrineReferences") or []
+        notes_refs = case_data.get("notesReferences") or []
+
+        for norm in legislation_refs:
+            if not isinstance(norm, dict):
+                ref_id = ""
+            else:
+                ref_id = _normalize_ref_text(norm.get("normIdentifier"))
+            if not ref_id:
+                continue
+            key = (case_id, "legislacao", ref_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            total_citations += 1
+            legislation_counter[ref_id] += 1
+
+        for ref in doctrine_refs:
+            if not isinstance(ref, dict):
+                ref_id = _normalize_ref_text(ref)
+            else:
+                ref_id = _normalize_ref_text(
+                    ref.get("rawCitation")
+                    or ref.get("publicationTitle")
+                    or ref.get("author")
+                )
+            if not ref_id:
+                continue
+            key = (case_id, "doutrina", ref_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            total_citations += 1
+            doctrine_counter[ref_id] += 1
+
+        for note in notes_refs:
+            if not isinstance(note, dict):
+                continue
+            note_type = str(note.get("noteType") or "notes").strip() or "notes"
+            items = note.get("items") if isinstance(note.get("items"), list) else []
+            if items:
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    raw_ref = _normalize_ref_text(item.get("rawRef"))
+                    if not raw_ref:
+                        continue
+                    key = (case_id, f"notes:{note_type}", raw_ref)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    total_citations += 1
+                    if note_type == "stf_acordao":
+                        acordao_counter[raw_ref] += 1
+            else:
+                raw_ref = _normalize_ref_text(note.get("rawLine"))
+                if not raw_ref:
+                    continue
+                key = (case_id, f"notes:{note_type}", raw_ref)
+                if key in seen:
+                    continue
+                seen.add(key)
+                total_citations += 1
+                if note_type == "stf_acordao":
+                    acordao_counter[raw_ref] += 1
+
+        decision_raw = _normalize_ref_text(
+            (doc.get("caseData") or {}).get("decisionDetails", {}).get("decisionResult", {}).get("finalDecision")
+        )
+        decision_label = decision_raw or "Não informado"
+        decision_counter[decision_label] += 1
+
+    def _top_items(counter: Counter[str], limit: int = 5) -> List[Dict[str, Any]]:
+        items = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
+        return [{"label": k, "total": v} for k, v in items[:limit]]
+
+    decision_distribution = [
+        {"label": k, "total": v}
+        for k, v in sorted(decision_counter.items(), key=lambda x: (-x[1], x[0]))
+    ]
+
+    return {
+        "total_citations": total_citations,
+        "top_legislation": _top_items(legislation_counter, limit=5),
+        "top_doctrine": _top_items(doctrine_counter, limit=5),
+        "top_acordaos": _top_items(acordao_counter, limit=5),
+        "decision_distribution": decision_distribution,
+    }
 
 
 def _fetch_relatoria_cases(collection: Collection, match: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -2305,10 +2526,8 @@ def ministro_detail() -> Any:
 
     collection = _get_collection()
     details = _aggregate_minister_detail(collection, filters, minister_name)
-    minister_match = _build_minister_match(filters, minister_name)
     relatoria_match = _build_relatoria_match(filters, minister_name)
     relatoria_cases = _fetch_relatoria_cases(collection, relatoria_match)
-    top_legislation = _aggregate_top_legislation_for_minister(collection, minister_match, limit=5)
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
@@ -2317,6 +2536,7 @@ def ministro_detail() -> Any:
         "ministro_detail.html",
         title="CITO | Ministros | Detalhe",
         minister_name=minister_name,
+        labels=MINISTER_DETAIL_LABELS,
         filter_params=filter_params,
         filter_params_no_minister=filter_params_no_minister,
         total_processes=details["total_processes"],
@@ -2325,7 +2545,7 @@ def ministro_detail() -> Any:
         decision_distribution=details["decision_distribution"],
         top_doctrine=details["top_doctrine"],
         top_norms=details["top_norms"],
-        top_legislation=top_legislation,
+        top_legislation=details["top_legislation"],
         relatoria_cases=relatoria_cases,
     )
 
@@ -2805,12 +3025,21 @@ def processos() -> Any:
     total = collection.count_documents(match)
     rows = _fetch_processes(collection, match, limit=limit)
     kpis = _aggregate_process_kpis(collection, match)
+    tag_limit = _limit_value(request.args.get("tag_limit"), default=20)
+    tag_clouds = {
+        "doctrine": _aggregate_doctrine_tag_cloud(collection, match, tag_limit),
+        "legislation": _aggregate_legislation_tag_cloud(collection, match, tag_limit),
+        "acordao": _aggregate_acordao_tag_cloud(collection, match, tag_limit),
+    }
 
     class_options = _aggregate_case_classes(collection, {})
     rapporteur_options = _aggregate_rapporteur_options(collection)
     author_suggestions = _aggregate_author_suggestions(collection, limit=250)
 
     filter_params = {k: v for k, v in filters.items() if v}
+    filter_params_no_author = {k: v for k, v in filter_params.items() if k != "author"}
+    filter_params_no_legislation = {k: v for k, v in filter_params.items() if k != "legislation_norm"}
+    filter_params_no_acordao = {k: v for k, v in filter_params.items() if k != "acordao_ref"}
     next_limit = limit + 50
 
     return render_template(
@@ -2826,6 +3055,11 @@ def processos() -> Any:
         processes=rows,
         total=total,
         kpis=kpis,
+        tag_clouds=tag_clouds,
+        tag_limit=tag_limit,
+        filter_params_no_author=filter_params_no_author,
+        filter_params_no_legislation=filter_params_no_legislation,
+        filter_params_no_acordao=filter_params_no_acordao,
         limit=limit,
         next_limit=next_limit,
         show_more=total > limit,
