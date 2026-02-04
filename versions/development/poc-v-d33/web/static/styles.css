@@ -366,6 +366,7 @@ button:hover {
 .stat-card-link {
   text-decoration: none;
   color: inherit;
+  cursor: pointer;
 }
 
 .stat-card-link:hover {
