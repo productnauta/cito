@@ -49,7 +49,7 @@ def _init_log_file() -> None:
     if LOG_FILE_PATH is not None:
         return
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     LOG_FILE_PATH = LOG_DIR / f"pipeline-{stamp}.log"
 
 

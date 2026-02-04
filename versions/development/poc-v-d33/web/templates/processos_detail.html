@@ -4,7 +4,13 @@
   <section class="panel">
     <div class="panel-header">
       <div>
-        <h1>{{ detail.title }}</h1>
+        <h1>
+          {% if detail.stf_id %}
+            <a href="{{ url_for('processos_detail', process_id=detail.stf_id) }}">{{ detail.title }}</a>
+          {% else %}
+            {{ detail.title }}
+          {% endif %}
+        </h1>
         <p class="panel-copy">Detalhes completos do processo e referencias extraidas.</p>
       </div>
       <a class="secondary" href="{{ url_for('processos') }}">Voltar</a>
@@ -17,7 +23,13 @@
       </article>
       <article class="card">
         <h3>Relator</h3>
-        <p class="card-value">{{ detail.rapporteur }}</p>
+        <p class="card-value">
+          {% if detail.rapporteur and detail.rapporteur != '-' %}
+            <a href="{{ url_for('ministro_detail', minister=detail.rapporteur) }}">{{ detail.rapporteur }}</a>
+          {% else %}
+            {{ detail.rapporteur }}
+          {% endif %}
+        </p>
         <span class="card-meta">Orgao: {{ detail.judging_body }}</span>
       </article>
       <article class="card">
@@ -59,7 +71,15 @@
                   -
                 {% endif %}
               </td>
-              <td>{{ ref.publicationTitle or '-' }}</td>
+              <td>
+                {% if ref.publicationTitle %}
+                  <a href="{{ url_for('doutrina_detail', kind='title', value=ref.publicationTitle) }}">
+                    {{ ref.publicationTitle }}
+                  </a>
+                {% else %}
+                  -
+                {% endif %}
+              </td>
               <td>{{ ref.edition or '-' }}</td>
               <td>{{ ref.year or '-' }}</td>
               <td>{{ ref.page or '-' }}</td>
@@ -140,14 +160,27 @@
           </tr>
         </thead>
         <tbody>
-          {% for party in detail.parties %}
+          {% for party in detail.parties[:10] %}
             <tr>
               <td>{{ party.type or '-' }}</td>
               <td>{{ party.name or '-' }}</td>
             </tr>
           {% endfor %}
+          {% if detail.parties|length > 10 %}
+            {% for party in detail.parties[10:] %}
+              <tr class="table-row--hidden" data-row-group="parties">
+                <td>{{ party.type or '-' }}</td>
+                <td>{{ party.name or '-' }}</td>
+              </tr>
+            {% endfor %}
+          {% endif %}
         </tbody>
       </table>
+      {% if detail.parties|length > 10 %}
+        <div class="actions">
+          <button class="secondary toggle-rows" data-target="parties">Exibir mais</button>
+        </div>
+      {% endif %}
     {% else %}
       <p class="empty">Nenhuma parte cadastrada.</p>
     {% endif %}
@@ -176,6 +209,17 @@
         if (!group) return;
         const hidden = group.classList.toggle('chip-row--hidden');
         btn.textContent = hidden ? 'Ver mais' : 'Ver menos';
+      });
+    });
+
+    document.querySelectorAll('.toggle-rows').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const target = btn.getAttribute('data-target');
+        const rows = document.querySelectorAll(`[data-row-group=\"${target}\"]`);
+        if (!rows.length) return;
+        const anyHidden = Array.from(rows).some((row) => row.classList.contains('table-row--hidden'));
+        rows.forEach((row) => row.classList.toggle('table-row--hidden', !anyHidden));
+        btn.textContent = anyHidden ? 'Ver menos' : 'Exibir mais';
       });
     });
   </script>

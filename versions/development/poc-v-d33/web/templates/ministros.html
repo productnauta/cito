@@ -79,7 +79,11 @@
     <article class="card">
       <h3>Ministro com Mais Relatorias</h3>
       {% if top_relatoria_minister %}
-        <p class="card-value">{{ top_relatoria_minister.minister }}</p>
+        <p class="card-value">
+          <a href="{{ url_for('ministro_detail', minister=top_relatoria_minister.minister, **filter_params_no_minister) }}">
+            {{ top_relatoria_minister.minister }}
+          </a>
+        </p>
         <small class="card-meta">{{ top_relatoria_minister.total_relatorias }} relatorias</small>
       {% else %}
         <p class="card-value">—</p>
@@ -150,7 +154,7 @@
             <th>Citado em</th>
             <th>Total voto vencido</th>
             <th>Total voto definido</th>
-            <th>Total voto pendefinido</th>
+            <th>Total voto indefinido</th>
           </tr>
         </thead>
         <tbody>
@@ -170,6 +174,17 @@
             </tr>
           {% endfor %}
         </tbody>
+        <tfoot>
+          <tr>
+            <th>Total (filtros aplicados)</th>
+            <th>{{ ministers_totals.total_processes }}</th>
+            <th>{{ ministers_totals.total_relatorias }}</th>
+            <th>{{ ministers_totals.citations_total }}</th>
+            <th>{{ ministers_totals.total_votes_vencido }}</th>
+            <th>{{ ministers_totals.total_votes_defined }}</th>
+            <th>{{ ministers_totals.total_votes_pending }}</th>
+          </tr>
+        </tfoot>
       </table>
       {% if show_more %}
         <div class="actions">

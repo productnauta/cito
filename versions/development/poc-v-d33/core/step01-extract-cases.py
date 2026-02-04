@@ -37,6 +37,7 @@ from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
 from utils.mongo import get_mongo_client, load_yaml
+from utils.normalize import normalize_minister_name
 
 # =============================================================================
 # 0) PATHS CONFIG
@@ -479,8 +480,8 @@ def extract_cards(html_raw: str, source_case_query_id: str) -> List[Dict[str, An
 
         # campos derivados do card — serão colocados dentro de case_data.identity
         judging_body = _extract_labeled_value(container, "Órgão julgador")
-        rapporteur = _extract_labeled_value(container, "Relator")
-        opinion_writer = _extract_labeled_value(container, "Redator")
+        rapporteur = normalize_minister_name(_extract_labeled_value(container, "Relator"))
+        opinion_writer = normalize_minister_name(_extract_labeled_value(container, "Redator"))
         case_class = _extract_case_class(container, case_title)
         case_number = _extract_case_number(container, case_title)
 

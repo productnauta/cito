@@ -452,6 +452,10 @@ tbody tr:hover {
   display: none;
 }
 
+.table-row--hidden {
+  display: none;
+}
+
 .chip.small {
   padding: 4px 8px;
   font-size: 11px;

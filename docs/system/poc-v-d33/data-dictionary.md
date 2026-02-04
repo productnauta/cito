@@ -33,6 +33,10 @@
 - `caseData.notesReferences`: referências de notas.
 - `caseData.doctrineReferences`: citações doutrinárias.
 - `caseData.decisionDetails`: detalhes extraídos da decisão.
+- `caseData.decisionDetails.decisionResult.finalDecision`: decisão final em linguagem natural.
+- `caseData.decisionDetails.ministerVotes[]`: votos por ministro (nome normalizado).
+- `caseData.decisionDetails.speakers[]`: oradores e parte representada.
+- `caseData.decisionDetails.partyRequests[]`: pedidos com parte solicitante, tipo, situação e descrição curta.
 - `processing.*`: status e métricas por etapa.
 - `status.pipelineStatus`: status consolidado.
 - `audit.*`: timestamps de auditoria.
@@ -52,3 +56,8 @@
 - `status`: `scheduled`, `running`, `completed`, `failed`, `canceled`.
 - `runId`: id de execução.
 - `logPath`: caminho do log.
+
+## Normalização de nomes de ministros
+- Campos afetados: `identity.rapporteur`, `identity.opinionWriter`, `caseIdentification.rapporteur`, `caseIdentification.opinionWriter`, `caseData.decisionDetails.ministerVotes[].ministerName`.
+- Regra: remove `Min`/`Min.` (case-insensitive), normaliza espaços e aplica Title Case.
+- Reprocessamento: `core/step10-normalize-minister-names.py`.

@@ -24,7 +24,9 @@
     </article>
     <article class="panel stat-card">
       <span class="stat-label">Total de citacoes recebidas</span>
-      <strong class="stat-value">{{ total_citations }}</strong>
+      <strong class="stat-value">
+        <a href="{{ url_for('doutrina', minister=minister_name) }}">Doutrinas citadas ({{ total_citations }})</a>
+      </strong>
     </article>
   </section>
 
@@ -68,12 +70,14 @@
             </tr>
           </thead>
           <tbody>
-            {% for row in top_doctrine %}
-              <tr>
-                <td>{{ row.label }}</td>
-                <td>{{ row.total }}</td>
-              </tr>
-            {% endfor %}
+          {% for row in top_doctrine %}
+            <tr>
+              <td>
+                <a href="{{ url_for('doutrina_detail', kind='author', value=row.label) }}">{{ row.label }}</a>
+              </td>
+              <td>{{ row.total }}</td>
+            </tr>
+          {% endfor %}
           </tbody>
         </table>
       {% else %}

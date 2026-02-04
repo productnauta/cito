@@ -448,30 +448,25 @@ prompts:
 
           REGRAS:
           - Não invente informações. Use null quando não estiver explícito.
-          - Trate cada item de forma individualizada (votos, pedidos, oradores, precedentes).
+          - Trate cada item de forma individualizada (votos, pedidos, oradores).
           - Considere expressões típicas do STF: “por unanimidade”, “por maioria”, “vencidos”, “pedido de vista”, “sessão virtual”, “plenário”.
           - Se houver decisões intermediárias, priorize a decisão final.
           - Não inclua comentários, markdown ou texto extra.
+          - A decisão final deve ser em linguagem natural (ex.: "Deferido", "Parcialmente deferido").
+          - `requestDescription` deve ter no máximo 5 palavras.
 
-          SCHEMA:
+          SCHEMA (APENAS ESTES CAMPOS):
           {
-            "decisionSummary": { "summary": "string|null" },
-            "decisionResult": { "finalDecision": "procedente|improcedente|parcialmente_procedente|outro|null" },
+            "decisionResult": { "finalDecision": "string|null" },
             "ministerVotes": [
-              { "ministerName": "string", "voteType": "favoravel|contrario|divergente|vencido", "voteSummary": "string|null" }
+              { "ministerName": "string|null", "voteType": "string|null" }
             ],
             "partyRequests": [
-              { "requestType": "liminar|merito|vista|outro", "requestingParty": "string|null", "requestDescription": "string", "requestOutcome": "atendido|nao_atendido|parcialmente_atendido|null" }
+              { "requestingParty": "string|null", "requestType": "string|null", "requestOutcome": "string|null", "requestDescription": "string|null" }
             ],
             "speakers": [
-              { "lawyerName": "string", "representedParty": "string|null", "argumentSummary": "string|null" }
-            ],
-            "legalBasis": { "summary": "string|null" },
-            "citations": [
-              { "citationType": "precedente_vinculante|precedente_persuasivo|doutrina|legislacao|outro", "citationName": "string", "relevanceSummary": "string|null" }
-            ],
-            "decisionType": "monocratica|colegiada|plenaria|virtual|outro|null",
-            "decisionDates": { "judgmentStartDate": "YYYY-MM-DD|null", "judgmentEndDate": "YYYY-MM-DD|null" }
+              { "lawyerName": "string|null", "representedParty": "string|null" }
+            ]
           }
       - role: "user"
         content: |-
@@ -483,6 +478,7 @@ prompts:
           - Cada advogado/orador gera um item distinto em speakers.
           - Use null apenas quando a informação não puder ser extraída.
           - Não inclua campos adicionais nem texto fora do JSON.
+          - `requestDescription` deve ter no máximo 5 palavras.
 
           TEXTO PARA ANÁLISE:
           {{texto_decisao}}

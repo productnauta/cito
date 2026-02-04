@@ -3,6 +3,7 @@
 Este conjunto de documentos descreve a versão `poc-v-d33` do CITO, cobrindo funcionalidades, arquitetura, dados e operação.
 
 ## Índice
+0. `knowledge-base.md` — base de conhecimento completa para humanos e IA.
 1. `overview.md` — visão geral, objetivos e escopo.
 2. `features.md` — funcionalidades do produto e do backoffice.
 3. `architecture.md` — arquitetura lógica e fluxos principais.

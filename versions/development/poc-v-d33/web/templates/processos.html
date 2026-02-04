@@ -120,7 +120,13 @@
                 <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
               </td>
               <td>{{ row.case_class }}</td>
-              <td>{{ row.rapporteur }}</td>
+              <td>
+                {% if row.rapporteur and row.rapporteur != '-' %}
+                  <a href="{{ url_for('ministro_detail', minister=row.rapporteur) }}">{{ row.rapporteur }}</a>
+                {% else %}
+                  {{ row.rapporteur }}
+                {% endif %}
+              </td>
               <td>{{ row.judgment_date }}</td>
               <td>{{ row.doctrine_count }}</td>
               <td>{{ row.keywords_count }}</td>

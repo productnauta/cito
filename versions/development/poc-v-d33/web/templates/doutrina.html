@@ -31,6 +31,10 @@
         <input type="text" name="rapporteur" value="{{ filters.rapporteur }}" placeholder="Ex: Gilmar Mendes" />
       </label>
       <label class="field">
+        <span>Ministro (votos)</span>
+        <input type="text" name="minister" value="{{ filters.minister }}" placeholder="Ex: Gilmar Mendes" />
+      </label>
+      <label class="field">
         <span>Orgao julgador</span>
         <input type="text" name="judging_body" value="{{ filters.judging_body }}" placeholder="Ex: Plenario" />
       </label>
@@ -71,7 +75,12 @@
       <h3>Doutrinas Mais Citadas</h3>
       <ol class="card-list">
         {% for item in top_doctrine_titles %}
-          <li>{{ item.label }} ({{ item.total }})</li>
+          <li>
+            <a href="{{ url_for('doutrina_detail', kind='title', value=item.label, **filter_params) }}">
+              {{ item.label }}
+            </a>
+            ({{ item.total }})
+          </li>
         {% else %}
           <li>—</li>
         {% endfor %}
@@ -81,7 +90,10 @@
       <h3>Ministros Mais Ativos</h3>
       <ol class="card-list">
         {% for item in rapporteurs[:3] %}
-          <li>{{ item.label }} ({{ item.total }})</li>
+          <li>
+            <a href="{{ url_for('ministro_detail', minister=item.label) }}">{{ item.label }}</a>
+            ({{ item.total }})
+          </li>
         {% else %}
           <li>—</li>
         {% endfor %}
@@ -122,7 +134,14 @@
       <h3>Casos com Mais Citacoes</h3>
       <ol class="card-list">
         {% for item in top_cases_by_doctrine %}
-          <li>{{ item.case_title }} ({{ item.total }})</li>
+          <li>
+            {% if item.stf_id %}
+              <a href="{{ url_for('processos_detail', process_id=item.stf_id) }}">{{ item.case_title }}</a>
+            {% else %}
+              {{ item.case_title }}
+            {% endif %}
+            ({{ item.total }})
+          </li>
         {% else %}
           <li>—</li>
         {% endfor %}
@@ -239,7 +258,7 @@
         <h2>Relatores</h2>
         <span class="chip">{{ rapporteurs|length }} encontrados</span>
       </div>
-      {% if rapporteurs %}
+        {% if rapporteurs %}
         <table>
           <thead>
             <tr>
@@ -251,9 +270,7 @@
             {% for row in rapporteurs %}
               <tr>
                 <td>
-                  <a href="{{ url_for('doutrina_detail', kind='rapporteur', value=row.label, **filter_params) }}">
-                    {{ row.label }}
-                  </a>
+                  <a href="{{ url_for('ministro_detail', minister=row.label) }}">{{ row.label }}</a>
                 </td>
                 <td>{{ row.total }}</td>
               </tr>

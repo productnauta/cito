@@ -40,6 +40,7 @@ if str(CORE_DIR) not in sys.path:
     sys.path.insert(0, str(CORE_DIR))
 
 from utils.mongo import get_case_data_collection, get_mongo_client
+from utils.normalize import normalize_minister_name
 
 
 CONFIG_DIR = BASE_DIR / "config"
@@ -59,7 +60,8 @@ PIPELINE_CONFIG_PATH = CONFIG_DIR / "pipeline.yaml"
 PIPELINE_JOBS_COLLECTION = "pipeline_jobs"
 
 WEB_LOG_DIR = BASE_DIR / "core" / "logs"
-WEB_LOG_FILE = WEB_LOG_DIR / "web-actions.log"
+_WEB_LOG_STAMP = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+WEB_LOG_FILE = WEB_LOG_DIR / f"{_WEB_LOG_STAMP}-web-actions.log"
 
 _collection: Optional[Collection] = None
 _db = None
@@ -297,6 +299,7 @@ def _get_filters(args: Dict[str, Any]) -> Dict[str, str]:
         "judgment_year": str(args.get("judgment_year") or "").strip(),
         "rapporteur": str(args.get("rapporteur") or "").strip(),
         "judging_body": str(args.get("judging_body") or "").strip(),
+        "minister": str(args.get("minister") or "").strip(),
     }
 
 
@@ -333,6 +336,12 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
     author_value, author_exact = _resolve("author")
     title_value, title_exact = _resolve("title")
     rapporteur_value, rapporteur_exact = _resolve("rapporteur")
+    minister_value, minister_exact = _resolve("minister")
+
+    if rapporteur_value:
+        rapporteur_value = normalize_minister_name(rapporteur_value) or rapporteur_value
+    if minister_value:
+        minister_value = normalize_minister_name(minister_value) or minister_value
 
     case_class = filters.get("case_class") or ""
     judging_body = filters.get("judging_body") or ""
@@ -356,6 +365,18 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
                 "$or": [
                     {"identity.rapporteur": rx},
                     {"caseIdentification.rapporteur": rx},
+                ]
+            }
+        )
+
+    if minister_value:
+        rx = _regex(minister_value, exact=minister_exact)
+        and_clauses.append(
+            {
+                "$or": [
+                    {"identity.rapporteur": rx},
+                    {"caseIdentification.rapporteur": rx},
+                    {MINISTER_VOTES_PATH: {"$elemMatch": {"ministerName": rx}}},
                 ]
             }
         )
@@ -780,6 +801,8 @@ def _build_process_match(filters: Dict[str, str]) -> Dict[str, Any]:
     title_value = filters.get("title") or ""
     case_class = filters.get("case_class") or ""
     rapporteur = filters.get("rapporteur") or ""
+    if rapporteur:
+        rapporteur = normalize_minister_name(rapporteur) or rapporteur
     author = filters.get("author") or ""
     date_start = _parse_date_value(filters.get("date_start") or "")
     date_end = _parse_date_value(filters.get("date_end") or "")
@@ -1127,6 +1150,7 @@ def _fetch_author_citations(
                 },
                 "_caseTitle": {"$ifNull": ["$identity.caseTitle", "$caseTitle"]},
                 "_caseId": _case_id_expr(),
+                "_stfId": {"$ifNull": ["$identity.stfDecisionId", None]},
                 "_caseUrl": {
                     "$ifNull": ["$caseContent.caseUrl", "$identity.caseUrl"]
                 },
@@ -1143,6 +1167,7 @@ def _fetch_author_citations(
                 "judgment_date": "$_judgmentDate",
                 "case_url": "$_caseUrl",
                 "case_id": "$_caseId",
+                "stf_id": "$_stfId",
             }
         },
         {"$sort": {"judgment_date": -1}},
@@ -1486,6 +1511,7 @@ def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> Lis
 
 def _build_minister_match(filters: Dict[str, str], minister_name: str) -> Dict[str, Any]:
     case_match = _build_ministro_case_match(filters)
+    minister_name = normalize_minister_name(minister_name) or minister_name
     minister_regex = _regex(minister_name, exact=True)
     minister_match = {
         "$or": [
@@ -1548,8 +1574,8 @@ def _aggregate_minister_detail(
 
     citations_pipeline = [
         {"$match": match},
-        {"$addFields": {"_citationsCount": _citations_count_expr(all_citation_types)}},
-        {"$group": {"_id": None, "total": {"$sum": "$_citationsCount"}}},
+        {"$addFields": {"_doctrineCount": {"$size": {"$ifNull": [f"${DOCTRINE_PATH}", []]}}}},
+        {"$group": {"_id": None, "total": {"$sum": "$_doctrineCount"}}},
     ]
     citations_result = list(collection.aggregate(citations_pipeline))
     total_citations = int(citations_result[0]["total"]) if citations_result else 0
@@ -2030,6 +2056,15 @@ def ministros() -> Any:
     visible_ministers = ministers_list[:limit]
     next_limit = limit + 50
 
+    ministers_totals = {
+        "total_processes": sum(item.get("total_processes", 0) for item in ministers_list),
+        "total_relatorias": sum(item.get("total_relatorias", 0) for item in ministers_list),
+        "citations_total": sum(item.get("citations_total", 0) for item in ministers_list),
+        "total_votes_vencido": sum(item.get("total_votes_vencido", 0) for item in ministers_list),
+        "total_votes_defined": sum(item.get("total_votes_defined", 0) for item in ministers_list),
+        "total_votes_pending": sum(item.get("total_votes_pending", 0) for item in ministers_list),
+    }
+
     minister_options = _aggregate_minister_options(collection, case_match)
     class_options = _aggregate_case_classes(collection, case_match)
 
@@ -2081,6 +2116,7 @@ def ministros() -> Any:
         class_options=class_options,
         total_ministers=total_ministers,
         ministers=visible_ministers,
+        ministers_totals=ministers_totals,
         limit=limit,
         next_limit=next_limit,
         show_more=total_ministers > limit,
@@ -2310,7 +2346,8 @@ def scraping_execute(job_id: str) -> Any:
 
     now = datetime.now(timezone.utc)
     run_id = str(uuid4())
-    log_path = str((BASE_DIR / "core" / "logs" / f"scrape-{run_id}.log"))
+    log_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    log_path = str((BASE_DIR / "core" / "logs" / f"{log_stamp}-scrape-{run_id}.log"))
     jobs_col.update_one(
         {"_id": obj_id},
         {"$set": {
@@ -2513,7 +2550,8 @@ def scraping_pipeline_run(run_id: str) -> Any:
     core_dir = BASE_DIR / "core"
     pipeline_path = core_dir / "step00-run-pipeline-02-09.py"
     run_uuid = str(uuid4())
-    log_path = str((core_dir / "logs" / f"pipeline-{run_uuid}.log"))
+    log_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    log_path = str((core_dir / "logs" / f"{log_stamp}-pipeline-{run_uuid}.log"))
 
     pipeline_jobs = _get_pipeline_jobs_collection()
     job_doc = {

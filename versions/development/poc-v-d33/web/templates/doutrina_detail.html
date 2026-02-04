@@ -57,9 +57,27 @@
           <tbody>
             {% for item in citations %}
               <tr>
-                <td>{{ item.case_title }}</td>
-                <td>{{ item.rapporteur or '-' }}</td>
-                <td>{{ item.work or '-' }}</td>
+                <td>
+                  {% if item.stf_id %}
+                    <a href="{{ url_for('processos_detail', process_id=item.stf_id) }}">{{ item.case_title }}</a>
+                  {% else %}
+                    {{ item.case_title }}
+                  {% endif %}
+                </td>
+                <td>
+                  {% if item.rapporteur %}
+                    <a href="{{ url_for('ministro_detail', minister=item.rapporteur) }}">{{ item.rapporteur }}</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if item.work %}
+                    <a href="{{ url_for('doutrina_detail', kind='title', value=item.work) }}">{{ item.work }}</a>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
                 <td>{{ item.case_class or '-' }}</td>
                 <td>{{ item.judgment_date }}</td>
                 <td>
@@ -104,7 +122,13 @@
           <tbody>
             {% for item in cases %}
               <tr>
-                <td>{{ item.case_title }}</td>
+                <td>
+                  {% if item.stf_id %}
+                    <a href="{{ url_for('processos_detail', process_id=item.stf_id) }}">{{ item.case_title }}</a>
+                  {% else %}
+                    {{ item.case_title }}
+                  {% endif %}
+                </td>
                 <td>{{ item.judgment_date }}</td>
                 <td>{{ item.judging_body }}</td>
                 <td>{{ item.decision_final }}</td>

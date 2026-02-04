@@ -30,6 +30,7 @@ import yaml
 from pymongo.collection import Collection
 
 from utils.mongo import get_case_data_collection
+from utils.normalize import normalize_minister_name
 
 # =============================================================================
 # 0) LOG
@@ -314,6 +315,96 @@ def normalize_decision_details(parsed: Dict[str, Any]) -> Dict[str, Any]:
     return parsed
 
 
+def _limit_words(text: Optional[str], max_words: int = 5) -> Optional[str]:
+    if text is None:
+        return None
+    s = str(text).strip()
+    if not s:
+        return None
+    words = s.split()
+    return " ".join(words[:max_words])
+
+
+def filter_decision_details_min(details: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Mantem apenas os campos exigidos pelo requisito:
+    - decisionResult.finalDecision (linguagem natural)
+    - ministerVotes: ministerName, voteType
+    - speakers: lawyerName, representedParty
+    - partyRequests: requestingParty, requestType, requestOutcome, requestDescription (<= 5 palavras)
+    """
+    out: Dict[str, Any] = {}
+
+    decision_result = details.get("decisionResult") if isinstance(details.get("decisionResult"), dict) else {}
+    final_decision = None
+    if isinstance(decision_result, dict):
+        final_decision = decision_result.get("finalDecision")
+    if final_decision is not None:
+        final_str = str(final_decision).strip()
+        if final_str:
+            out["decisionResult"] = {"finalDecision": final_str}
+
+    votes_raw = details.get("ministerVotes") if isinstance(details.get("ministerVotes"), list) else []
+    votes: List[Dict[str, Any]] = []
+    for item in votes_raw:
+        if not isinstance(item, dict):
+            continue
+        name = normalize_minister_name(item.get("ministerName") or item.get("minister"))
+        vote = str(item.get("voteType") or item.get("vote") or "").strip()
+        if not name and not vote:
+            continue
+        votes.append(
+            {
+                "ministerName": name,
+                "voteType": vote or None,
+            }
+        )
+    if votes:
+        out["ministerVotes"] = votes
+
+    speakers_raw = details.get("speakers") if isinstance(details.get("speakers"), list) else []
+    speakers: List[Dict[str, Any]] = []
+    for item in speakers_raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("lawyerName") or item.get("speakerName") or "").strip()
+        represented = str(item.get("representedParty") or item.get("represented") or "").strip()
+        if not name and not represented:
+            continue
+        speakers.append(
+            {
+                "lawyerName": name or None,
+                "representedParty": represented or None,
+            }
+        )
+    if speakers:
+        out["speakers"] = speakers
+
+    requests_raw = details.get("partyRequests") if isinstance(details.get("partyRequests"), list) else []
+    requests: List[Dict[str, Any]] = []
+    for item in requests_raw:
+        if not isinstance(item, dict):
+            continue
+        requesting_party = str(item.get("requestingParty") or "").strip()
+        request_type = str(item.get("requestType") or "").strip()
+        request_outcome = str(item.get("requestOutcome") or "").strip()
+        request_desc = _limit_words(item.get("requestDescription") or item.get("requestSummary"), 5)
+        if not (requesting_party or request_type or request_outcome or request_desc):
+            continue
+        requests.append(
+            {
+                "requestingParty": requesting_party or None,
+                "requestType": request_type or None,
+                "requestOutcome": request_outcome or None,
+                "requestDescription": request_desc,
+            }
+        )
+    if requests:
+        out["partyRequests"] = requests
+
+    return out
+
+
 # =============================================================================
 # 5) PERSISTENCE
 # =============================================================================
@@ -458,6 +549,7 @@ def main() -> int:
     try:
         parsed = parse_json_with_repair(content)
         details = normalize_decision_details(parsed)
+        details = filter_decision_details_min(details)
     except Exception as e:
         log(f"Erro ao parsear resposta: {e}")
         if doc_id is not None:

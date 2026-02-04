@@ -40,7 +40,14 @@ DELAY_BETWEEN_STEPS_SECONDS = 2.0
 
 # Log em arquivo (append)
 LOG_DIR = BASE_DIR / "logs"
-LOG_FILE_PATH = LOG_DIR / "pipeline-02-09.log"
+def _with_ts_prefix(filename: str) -> str:
+    if re.match(r"^\\d{8}-\\d{6}", filename):
+        return filename
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{filename}"
+
+
+LOG_FILE_PATH = LOG_DIR / _with_ts_prefix("pipeline-02-09.log")
 LOG_TO_FILE = True
 RUN_ID: Optional[str] = None
 
@@ -283,11 +290,11 @@ def main() -> int:
     LOG_TO_FILE = logging_cfg.get("enabled") is not False
     LOG_DIR = BASE_DIR / "logs"
     if isinstance(logging_cfg.get("log_file"), str) and logging_cfg.get("log_file"):
-        LOG_FILE_PATH = LOG_DIR / str(logging_cfg.get("log_file"))
+        LOG_FILE_PATH = LOG_DIR / _with_ts_prefix(str(logging_cfg.get("log_file")))
 
     RUN_ID = (args.run_id or "").strip() or None
     if RUN_ID:
-        LOG_FILE_PATH = LOG_DIR / f"pipeline-{RUN_ID}.log"
+        LOG_FILE_PATH = LOG_DIR / _with_ts_prefix(f"pipeline-{RUN_ID}.log")
 
     # case_url override
     case_url = (args.case_url or "").strip() or str(runtime_cfg.get("case_url_override") or "").strip()
