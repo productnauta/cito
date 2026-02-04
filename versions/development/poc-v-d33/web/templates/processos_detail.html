@@ -62,6 +62,24 @@
 
   <section class="panel">
     <div class="panel-header">
+      <h2>Linha do tempo</h2>
+    </div>
+    {% if detail.timeline %}
+      <ol class="timeline">
+        {% for item in detail.timeline %}
+          <li>
+            <span class="timeline-date">{{ item.date }}</span>
+            <span class="timeline-label">{{ item.label }}</span>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      <p class="empty">Sem eventos registrados para este processo.</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
       <h2>Votos dos ministros</h2>
     </div>
     {% if detail.minister_votes %}
@@ -76,7 +94,14 @@
           {% for vote in detail.minister_votes %}
             <tr>
               <td>{{ vote.minister }}</td>
-              <td>{{ vote.vote }}</td>
+              <td>
+                <span
+                  class="vote-badge {{ vote.vote_class }}"
+                  {% if vote.vote == 'Outros' %}title="Voto nao classificado."{% endif %}
+                >
+                  {{ vote.vote }}
+                </span>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
@@ -84,6 +109,31 @@
     {% else %}
       <p class="empty">Sem dados de votos.</p>
     {% endif %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Mapa de argumentos do processo</h2>
+    </div>
+    <div class="argument-map">
+      <div class="argument-node argument-node--center">
+        <span>Decisao final</span>
+        <strong>{{ detail.argument_map.decision_final }}</strong>
+      </div>
+      <div class="argument-node">
+        <span>Doutrinas</span>
+        <strong>{{ detail.argument_map.doctrines }}</strong>
+      </div>
+      <div class="argument-node">
+        <span>Legislacao</span>
+        <strong>{{ detail.argument_map.legislation }}</strong>
+      </div>
+      <div class="argument-node">
+        <span>Precedentes</span>
+        <strong>{{ detail.argument_map.acordaos }}</strong>
+      </div>
+    </div>
+    <p class="helper">Relacao simplificada entre a decisao final e as fontes citadas.</p>
   </section>
 
   <section class="panel">
@@ -113,9 +163,9 @@
                 {% endif %}
               </td>
               <td>
-                {% if ref.publicationTitle %}
-                  <a href="{{ url_for('doutrina_detail', kind='title', value=ref.publicationTitle) }}">
-                    {{ ref.publicationTitle }}
+                {% if ref.publicationTitleDisplay or ref.publicationTitle %}
+                  <a href="{{ url_for('doutrina_detail', kind='title', value=ref.publicationTitleDisplay or ref.publicationTitle) }}">
+                    {{ ref.publicationTitleDisplay or ref.publicationTitle }}
                   </a>
                 {% else %}
                   -
@@ -132,7 +182,6 @@
       <p class="empty">Nenhuma doutrina encontrada.</p>
     {% endif %}
   </section>
-
   <section class="grid">
     <article class="panel">
       <div class="panel-header">
@@ -168,7 +217,9 @@
       {% if detail.legislation_ids %}
         <div class="chip-row">
           {% for norm in detail.legislation_ids[:20] %}
-            <span class="chip small">{{ norm }}</span>
+            <a class="chip small chip-link" href="{{ url_for('processos', legislation_norm=norm) }}">
+              {{ norm }}
+            </a>
           {% endfor %}
         </div>
         {% if detail.legislation_ids|length > 20 %}
@@ -177,7 +228,9 @@
           </div>
           <div class="chip-row chip-row--hidden" data-chip-group="legislation">
             {% for norm in detail.legislation_ids[20:] %}
-              <span class="chip small">{{ norm }}</span>
+              <a class="chip small chip-link" href="{{ url_for('processos', legislation_norm=norm) }}">
+                {{ norm }}
+              </a>
             {% endfor %}
           </div>
         {% endif %}

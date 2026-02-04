@@ -35,6 +35,23 @@
           <span class="stat-label">Relator que mais citou</span>
           <span class="stat-value">{{ author_insights.top_rapporteur }}</span>
         </div>
+        <div class="stat-card">
+          <span class="stat-label">Indice de influencia</span>
+          <span class="stat-value" title="{{ author_insights.influence_tooltip }}">
+            {{ author_insights.influence_index }}
+          </span>
+          <span class="helper">Passe o mouse para ver o calculo</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Taxa de recorrencia</span>
+          <span class="stat-value">
+            {% if author_insights.recurrence_rate is not none %}
+              {{ author_insights.recurrence_rate|round(1) }}%
+            {% else %}
+              —
+            {% endif %}
+          </span>
+        </div>
       </div>
     </section>
 
@@ -42,6 +59,36 @@
       <div class="panel-header">
         <h2>Detalhes das citacoes</h2>
       </div>
+      <form class="filters" method="get">
+        <input type="hidden" name="kind" value="{{ detail_key }}" />
+        <input type="hidden" name="value" value="{{ detail_value }}" />
+        {% for key, value in filter_params.items() %}
+          {% if key not in ['rapporteur', 'judging_body', 'decision'] %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}" />
+          {% endif %}
+        {% endfor %}
+        <label class="field">
+          <span>Relator</span>
+          <input type="text" name="rapporteur" value="{{ filters.rapporteur }}" placeholder="Ex: Gilmar Mendes" />
+        </label>
+        <label class="field">
+          <span>Orgao julgador</span>
+          <input type="text" name="judging_body" value="{{ filters.judging_body }}" placeholder="Ex: Plenario" />
+        </label>
+        <label class="field">
+          <span>Decisao final</span>
+          <input type="text" name="decision" value="{{ filters.decision }}" placeholder="Ex: Procedente" />
+        </label>
+        <div class="actions">
+          <button type="submit">Aplicar filtros</button>
+          <a
+            class="secondary"
+            href="{{ url_for('doutrina_detail', kind=detail_key, value=detail_value, **filter_params) }}"
+          >
+            Limpar
+          </a>
+        </div>
+      </form>
       {% if citations %}
         <table class="data-table">
           <thead>
@@ -50,7 +97,9 @@
               <th>Relator</th>
               <th>Nome da obra citada</th>
               <th>Classe</th>
+              <th>Orgao julgador</th>
               <th>Data do Julgamento</th>
+              <th>Decisao final</th>
               <th>Link</th>
             </tr>
           </thead>
@@ -79,7 +128,9 @@
                   {% endif %}
                 </td>
                 <td>{{ item.case_class or '-' }}</td>
+                <td>{{ item.judging_body or '-' }}</td>
                 <td>{{ item.judgment_date }}</td>
+                <td>{{ item.decision_final or '-' }}</td>
                 <td>
                   {% if item.case_url %}
                     <a href="{{ item.case_url }}" target="_blank" rel="noopener">Abrir</a>

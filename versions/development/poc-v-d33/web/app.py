@@ -16,6 +16,7 @@ Dependencies: flask, pymongo, pyyaml
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -41,10 +42,12 @@ if str(CORE_DIR) not in sys.path:
 
 from utils.mongo import get_case_data_collection, get_mongo_client
 from utils.normalize import normalize_minister_name
+from utils.work_normalize import canonicalize_work, load_alias_map, normalize_title
 
 
 CONFIG_DIR = BASE_DIR / "config"
 MONGO_CONFIG_PATH = CONFIG_DIR / "mongo.yaml"
+WORK_ALIAS_PATH = CONFIG_DIR / "work_aliases.yaml"
 COLLECTION_NAME = "case_data"
 DOCTRINE_PATH = "caseData.doctrineReferences"
 DECISION_DETAILS_PATH = "caseData.decisionDetails"
@@ -93,6 +96,14 @@ WEB_LOG_FILE = WEB_LOG_DIR / f"{_WEB_LOG_STAMP}-web-actions.log"
 
 _collection: Optional[Collection] = None
 _db = None
+_work_alias_map: Optional[Dict[str, str]] = None
+
+
+def _get_work_alias_map() -> Dict[str, str]:
+    global _work_alias_map
+    if _work_alias_map is None:
+        _work_alias_map = load_alias_map(WORK_ALIAS_PATH)
+    return _work_alias_map
 
 
 def _get_collection() -> Collection:
@@ -127,6 +138,14 @@ def _regex(value: str, exact: bool = False) -> Dict[str, Any]:
     return {"$regex": pattern, "$options": "i"}
 
 
+def _resolve_work_key(value: str) -> Optional[str]:
+    if not value:
+        return None
+    alias_map = _get_work_alias_map()
+    canonical = canonicalize_work(value, alias_map)
+    return canonical.get("workKey") or None
+
+
 def _year_range(year: int) -> Tuple[datetime, datetime]:
     return datetime(year, 1, 1), datetime(year + 1, 1, 1)
 
@@ -137,6 +156,24 @@ def _format_date(value: Any) -> str:
     if isinstance(value, date):
         return value.strftime("%Y-%m-%d")
     return str(value) if value else ""
+
+
+def _parse_date_any(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, str):
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(value, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _parse_date_value(value: str) -> Optional[date]:
@@ -210,6 +247,16 @@ def _normalize_vote_label(value: Optional[str]) -> str:
     if not s:
         return "Outros"
     return _normalize_decision_label(s)
+
+
+def _vote_badge_class(label: str) -> str:
+    mapping = {
+        "Deferido": "vote-badge--deferido",
+        "Indeferido": "vote-badge--indeferido",
+        "Parcialmente indeferido": "vote-badge--parcial",
+        "Outros": "vote-badge--outros",
+    }
+    return mapping.get(label, "vote-badge--outros")
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -376,6 +423,7 @@ def _get_filters(args: Dict[str, Any]) -> Dict[str, str]:
         "judgment_year": str(args.get("judgment_year") or "").strip(),
         "rapporteur": str(args.get("rapporteur") or "").strip(),
         "judging_body": str(args.get("judging_body") or "").strip(),
+        "decision": str(args.get("decision") or "").strip(),
         "minister": str(args.get("minister") or "").strip(),
     }
 
@@ -425,6 +473,7 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
 
     case_class = filters.get("case_class") or ""
     judging_body = filters.get("judging_body") or ""
+    decision_value = filters.get("decision") or ""
     year_raw = filters.get("judgment_year") or ""
 
     if case_class:
@@ -472,6 +521,10 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
             }
         )
 
+    if decision_value:
+        rx = _regex(decision_value)
+        and_clauses.append({DECISION_RESULT_PATH: rx})
+
     if year_raw.isdigit():
         year = int(year_raw)
         start, end = _year_range(year)
@@ -481,7 +534,15 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
     if author_value:
         elem["author"] = _regex(author_value, exact=author_exact)
     if title_value:
-        elem["publicationTitle"] = _regex(title_value, exact=title_exact)
+        work_key = _resolve_work_key(title_value)
+        if work_key:
+            elem["$or"] = [
+                {"workKey": work_key},
+                {"publicationTitle": _regex(title_value, exact=title_exact)},
+                {"publicationTitleNorm": normalize_title(title_value)},
+            ]
+        else:
+            elem["publicationTitle"] = _regex(title_value, exact=title_exact)
     if elem:
         and_clauses.append({DOCTRINE_PATH: {"$elemMatch": elem}})
     elif minister_value:
@@ -582,20 +643,57 @@ def _aggregate_titles(collection: Collection, filters: Dict[str, str]) -> List[D
     if filters.get("author"):
         citation_match[f"{DOCTRINE_PATH}.author"] = _regex(filters["author"])
     if filters.get("title"):
-        citation_match[f"{DOCTRINE_PATH}.publicationTitle"] = _regex(filters["title"])
+        work_key = _resolve_work_key(filters["title"])
+        if work_key:
+            citation_match["$or"] = [
+                {f"{DOCTRINE_PATH}.workKey": work_key},
+                {f"{DOCTRINE_PATH}.publicationTitle": _regex(filters["title"])},
+                {f"{DOCTRINE_PATH}.publicationTitleNorm": normalize_title(filters["title"])},
+            ]
+        else:
+            citation_match[f"{DOCTRINE_PATH}.publicationTitle"] = _regex(filters["title"])
     if citation_match:
         pipeline.append({"$match": citation_match})
 
-    pipeline.append({"$match": {f"{DOCTRINE_PATH}.publicationTitle": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_workKey": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.workKey",
+                        f"${DOCTRINE_PATH}.publicationTitleNorm",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+            }
+        }
+    )
+    pipeline.append({"$match": {"_workKey": {"$nin": [None, ""]}}})
     pipeline.append(
         {
             "$group": {
-                "_id": f"${DOCTRINE_PATH}.publicationTitle",
+                "_id": {"workKey": "$_workKey", "displayTitle": "$_displayTitle"},
                 "total": {"$sum": 1},
             }
         }
     )
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append({"$sort": {"total": -1, "_id.displayTitle": 1}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_id.workKey",
+                "label": {"$first": "$_id.displayTitle"},
+                "total": {"$sum": "$total"},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": 1, "total": 1}})
     pipeline.append({"$sort": {"total": -1, "label": 1}})
     return list(collection.aggregate(pipeline))
 
@@ -926,9 +1024,45 @@ def _aggregate_top_doctrine_titles(
     if match:
         pipeline.append({"$match": match})
     pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
-    pipeline.append({"$match": {f"{DOCTRINE_PATH}.publicationTitle": {"$nin": [None, ""]}}})
-    pipeline.append({"$group": {"_id": f"${DOCTRINE_PATH}.publicationTitle", "total": {"$sum": 1}}})
-    pipeline.append({"$project": {"_id": 0, "label": "$_id", "total": 1}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_workKey": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.workKey",
+                        f"${DOCTRINE_PATH}.publicationTitleNorm",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+            }
+        }
+    )
+    pipeline.append({"$match": {"_workKey": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {"workKey": "$_workKey", "displayTitle": "$_displayTitle"},
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append({"$sort": {"total": -1, "_id.displayTitle": 1}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": "$_id.workKey",
+                "label": {"$first": "$_id.displayTitle"},
+                "total": {"$sum": "$total"},
+            }
+        }
+    )
+    pipeline.append({"$project": {"_id": 0, "label": 1, "total": 1}})
     pipeline.append({"$sort": {"total": -1, "label": 1}})
     if limit:
         pipeline.append({"$limit": limit})
@@ -943,12 +1077,32 @@ def _aggregate_top_doctrine_titles_timeseries(
         pipeline.append({"$match": match})
     pipeline.append({"$match": {"dates.judgmentDate": {"$type": "date"}}})
     pipeline.append({"$unwind": f"${DOCTRINE_PATH}"})
-    pipeline.append({"$match": {f"{DOCTRINE_PATH}.publicationTitle": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_workKey": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.workKey",
+                        f"${DOCTRINE_PATH}.publicationTitleNorm",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+            }
+        }
+    )
+    pipeline.append({"$match": {"_workKey": {"$nin": [None, ""]}}})
     pipeline.append(
         {
             "$group": {
                 "_id": {
-                    "title": f"${DOCTRINE_PATH}.publicationTitle",
+                    "workKey": "$_workKey",
+                    "displayTitle": "$_displayTitle",
                     "year": {"$year": "$dates.judgmentDate"},
                 },
                 "total": {"$sum": 1},
@@ -959,7 +1113,8 @@ def _aggregate_top_doctrine_titles_timeseries(
         {
             "$project": {
                 "_id": 0,
-                "title": "$_id.title",
+                "workKey": "$_id.workKey",
+                "displayTitle": "$_id.displayTitle",
                 "year": "$_id.year",
                 "total": 1,
             }
@@ -972,22 +1127,32 @@ def _aggregate_top_doctrine_titles_timeseries(
     from collections import Counter
 
     totals: Counter[str] = Counter()
+    display_counts: Dict[str, Counter[str]] = {}
     for row in rows:
-        totals[str(row.get("title") or "")] += int(row.get("total") or 0)
+        key = str(row.get("workKey") or "")
+        display = str(row.get("displayTitle") or "")
+        totals[key] += int(row.get("total") or 0)
+        if key:
+            display_counts.setdefault(key, Counter())[display] += int(row.get("total") or 0)
 
     top_titles = sorted(totals.items(), key=lambda x: (-x[1], x[0]))
-    top_titles = [title for title, _ in top_titles[:limit]]
+    top_keys = [key for key, _ in top_titles[:limit]]
     years = sorted({int(row.get("year")) for row in rows if row.get("year")})
     year_index = {year: idx for idx, year in enumerate(years)}
-    series_map = {title: [0 for _ in years] for title in top_titles}
+    series_map = {key: [0 for _ in years] for key in top_keys}
 
     for row in rows:
-        title = str(row.get("title") or "")
+        title = str(row.get("workKey") or "")
         year = row.get("year")
         if title in series_map and year in year_index:
             series_map[title][year_index[year]] += int(row.get("total") or 0)
 
-    series = [{"label": title, "data": series_map[title]} for title in top_titles]
+    series = []
+    for key in top_keys:
+        display = key
+        if key in display_counts and display_counts[key]:
+            display = sorted(display_counts[key].items(), key=lambda x: (-x[1], x[0]))[0][0]
+        series.append({"label": display, "data": series_map[key]})
     return {"years": years, "series": series}
 
 
@@ -1442,6 +1607,22 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     legislation_norms_total = len({n for n in legislation_ids if n})
     keywords = case_data.get("caseKeywords") or []
 
+    acordao_refs_total = 0
+    notes_refs = case_data.get("notesReferences") or []
+    for note in notes_refs:
+        if not isinstance(note, dict):
+            continue
+        if str(note.get("noteType") or "").strip() != "stf_acordao":
+            continue
+        items = note.get("items") if isinstance(note.get("items"), list) else []
+        if items:
+            for item in items:
+                if isinstance(item, dict) and item.get("rawRef"):
+                    acordao_refs_total += 1
+        else:
+            if note.get("rawLine"):
+                acordao_refs_total += 1
+
     links = []
     if case_content.get("caseUrl"):
         links.append({"label": "Pagina do processo", "url": case_content.get("caseUrl")})
@@ -1469,8 +1650,51 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
                 {
                     "minister": name or "—",
                     "vote": vote_result or "Outros",
+                    "vote_class": _vote_badge_class(vote_result or "Outros"),
                 }
             )
+
+    timeline_raw: List[Dict[str, Any]] = []
+
+    def _add_timeline(label: str, value: Any) -> None:
+        if not value:
+            return
+        timeline_raw.append(
+            {
+                "label": label,
+                "date": _format_date(value),
+                "_sort": _parse_date_any(value),
+            }
+        )
+
+    _add_timeline(
+        "Distribuicao",
+        dates.get("distributionDate")
+        or dates.get("distribution")
+        or case_content.get("distributionDate"),
+    )
+    _add_timeline("Julgamento", dates.get("judgmentDate"))
+    _add_timeline("Publicacao", dates.get("publicationDate"))
+
+    intermediate = (
+        decision_details.get("intermediateDecisions")
+        if isinstance(decision_details, dict)
+        else None
+    )
+    if isinstance(intermediate, list):
+        for item in intermediate:
+            if not isinstance(item, dict):
+                continue
+            desc = str(item.get("description") or item.get("label") or "Decisao intermediaria").strip()
+            _add_timeline(desc, item.get("date") or item.get("decisionDate"))
+
+    with_sort = [item for item in timeline_raw if item.get("_sort")]
+    without_sort = [item for item in timeline_raw if not item.get("_sort")]
+    with_sort.sort(key=lambda x: x["_sort"])
+    timeline = [
+        {"label": item["label"], "date": item["date"]}
+        for item in (with_sort + without_sort)
+    ]
 
     return {
         "id": str(doc.get("_id")),
@@ -1492,6 +1716,13 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         "links": links,
         "decision_final": decision_final,
         "minister_votes": minister_votes,
+        "timeline": timeline,
+        "argument_map": {
+            "decision_final": decision_final or "Nao identificado",
+            "doctrines": len(doctrine_refs),
+            "legislation": legislation_refs_total,
+            "acordaos": acordao_refs_total,
+        },
     }
 
 
@@ -1570,6 +1801,19 @@ def _aggregate_author_insights(
                     "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
                 },
                 "_caseId": _case_id_expr(),
+                "_workKey": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.workKey",
+                        f"${DOCTRINE_PATH}.publicationTitleNorm",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
             }
         },
         {
@@ -1579,10 +1823,10 @@ def _aggregate_author_insights(
                 "unique_citations": {
                     "$addToSet": {
                         "case": "$_caseId",
-                        "title": f"${DOCTRINE_PATH}.publicationTitle",
+                        "workKey": "$_workKey",
                     }
                 },
-                "top_work": {"$push": f"${DOCTRINE_PATH}.publicationTitle"},
+                "works": {"$push": {"workKey": "$_workKey", "displayTitle": "$_displayTitle"}},
                 "rapporteurs": {"$push": "$_rapporteur"},
             }
         },
@@ -1594,6 +1838,11 @@ def _aggregate_author_insights(
             "unique_citations": 0,
             "top_work": "—",
             "top_rapporteur": "—",
+            "distinct_ministers": 0,
+            "distinct_classes": 0,
+            "influence_index": 0,
+            "influence_tooltip": "Indice = total citacoes + ministros distintos + classes distintas",
+            "recurrence_rate": None,
         }
 
     row = result[0]
@@ -1602,12 +1851,23 @@ def _aggregate_author_insights(
 
     top_work = "—"
     work_counts: Dict[str, int] = {}
-    for item in row.get("top_work") or []:
-        if not item:
+    work_display: Dict[str, Dict[str, int]] = {}
+    for item in row.get("works") or []:
+        if not isinstance(item, dict):
             continue
-        work_counts[item] = work_counts.get(item, 0) + 1
+        key = str(item.get("workKey") or "").strip()
+        display = str(item.get("displayTitle") or "").strip()
+        if not key:
+            continue
+        work_counts[key] = work_counts.get(key, 0) + 1
+        if display:
+            display_map = work_display.setdefault(key, {})
+            display_map[display] = display_map.get(display, 0) + 1
     if work_counts:
-        top_work = sorted(work_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        best_key = sorted(work_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        display_map = work_display.get(best_key, {})
+        if display_map:
+            top_work = sorted(display_map.items(), key=lambda x: (-x[1], x[0]))[0][0]
 
     rapporteur_counts: Dict[str, int] = {}
     for item in row.get("rapporteurs") or []:
@@ -1618,11 +1878,75 @@ def _aggregate_author_insights(
     if rapporteur_counts:
         top_rapporteur = sorted(rapporteur_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
 
+    recurrence_pipeline = [
+        {"$match": match},
+        {"$unwind": f"${DOCTRINE_PATH}"},
+        {"$match": {f"{DOCTRINE_PATH}.author": _regex(author_name, exact=True)}},
+        {
+            "$addFields": {
+                "_caseId": _case_id_expr(),
+                "_rapporteur": {
+                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
+                },
+                "_caseClass": {
+                    "$ifNull": ["$identity.caseClass", "$caseIdentification.caseClass"]
+                },
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_caseId",
+                "citations_count": {"$sum": 1},
+                "rapporteur": {"$first": "$_rapporteur"},
+                "case_class": {"$first": "$_caseClass"},
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "total_cases": {"$sum": 1},
+                "recurring_cases": {
+                    "$sum": {"$cond": [{"$gt": ["$citations_count", 1]}, 1, 0]}
+                },
+                "total_citations": {"$sum": "$citations_count"},
+                "rapporteurs": {"$addToSet": "$rapporteur"},
+                "case_classes": {"$addToSet": "$case_class"},
+            }
+        },
+    ]
+    recurrence_result = list(collection.aggregate(recurrence_pipeline))
+    if recurrence_result:
+        rec_row = recurrence_result[0]
+        total_cases = int(rec_row.get("total_cases") or 0)
+        recurring_cases = int(rec_row.get("recurring_cases") or 0)
+        distinct_ministers = len([r for r in (rec_row.get("rapporteurs") or []) if r])
+        distinct_classes = len([c for c in (rec_row.get("case_classes") or []) if c])
+    else:
+        total_cases = 0
+        recurring_cases = 0
+        distinct_ministers = 0
+        distinct_classes = 0
+
+    citation_score = math.log1p(total_citations) * 10
+    influence_index = round(citation_score + (distinct_ministers * 3) + (distinct_classes * 2))
+    influence_tooltip = (
+        "Indice = log(1 + total citacoes) * 10 "
+        f"({citation_score:.1f}) + ministros distintos * 3 "
+        f"({distinct_ministers * 3}) + classes distintas * 2 "
+        f"({distinct_classes * 2})"
+    )
+    recurrence_rate = (recurring_cases / total_cases) * 100 if total_cases else None
+
     return {
         "total_citations": total_citations,
         "unique_citations": unique_citations,
         "top_work": top_work,
         "top_rapporteur": top_rapporteur,
+        "distinct_ministers": distinct_ministers,
+        "distinct_classes": distinct_classes,
+        "influence_index": influence_index,
+        "influence_tooltip": influence_tooltip,
+        "recurrence_rate": recurrence_rate,
     }
 
 
@@ -1651,6 +1975,16 @@ def _fetch_author_citations(
                     "$ifNull": ["$caseContent.caseUrl", "$identity.caseUrl"]
                 },
                 "_judgmentDate": "$dates.judgmentDate",
+                "_displayTitle": {
+                    "$ifNull": [
+                        f"${DOCTRINE_PATH}.publicationTitleDisplay",
+                        f"${DOCTRINE_PATH}.publicationTitle",
+                    ]
+                },
+                "_judgingBody": {
+                    "$ifNull": ["$identity.judgingBody", "$caseIdentification.judgingBody"]
+                },
+                "_decisionFinal": {"$ifNull": [f"${DECISION_RESULT_PATH}", None]},
             }
         },
         {
@@ -1658,9 +1992,11 @@ def _fetch_author_citations(
                 "_id": 0,
                 "case_title": "$_caseTitle",
                 "rapporteur": "$_rapporteur",
-                "work": f"${DOCTRINE_PATH}.publicationTitle",
+                "work": "$_displayTitle",
                 "case_class": "$_caseClass",
                 "judgment_date": "$_judgmentDate",
+                "judging_body": "$_judgingBody",
+                "decision_final": "$_decisionFinal",
                 "case_url": "$_caseUrl",
                 "case_id": "$_caseId",
                 "stf_id": "$_stfId",
@@ -1673,6 +2009,7 @@ def _fetch_author_citations(
     rows = list(collection.aggregate(pipeline))
     for row in rows:
         row["judgment_date"] = _format_date(row.get("judgment_date"))
+        row["decision_final"] = _normalize_decision_text(row.get("decision_final"))
     return rows
 
 
@@ -2758,6 +3095,7 @@ def doutrina_detail() -> Any:
     return render_template(
         "doutrina_detail.html",
         title="CITO | Doutrina | Detail",
+        filters=filters,
         detail_kind=label_map.get(kind, kind).upper(),
         detail_key=kind,
         detail_value=value,

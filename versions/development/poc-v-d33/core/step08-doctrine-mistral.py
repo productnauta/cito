@@ -28,6 +28,7 @@ import yaml
 from pymongo.collection import Collection
 
 from utils.mongo import get_case_data_collection
+from utils.work_normalize import canonicalize_work, load_alias_map
 
 # =============================================================================
 # 0) LOG
@@ -63,6 +64,9 @@ CASE_DATA_COLLECTION = "case_data"
 PROVIDER_NAME = "mistral"
 PROVIDER_KEY_NAME = "cito-dev-a"
 PROMPT_ID = "extract-doctrines-from-md"
+
+WORK_ALIAS_PATH = CONFIG_DIR / "work_aliases.yaml"
+WORK_ALIAS_MAP = load_alias_map(WORK_ALIAS_PATH)
 
 
 @dataclass(frozen=True)
@@ -321,6 +325,23 @@ def parse_doctrine_protocol(text: str) -> List[Dict[str, Any]]:
     return output
 
 
+def _apply_work_keys(refs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    output: List[Dict[str, Any]] = []
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        raw_title = str(ref.get("publicationTitle") or "").strip()
+        canonical = canonicalize_work(raw_title, WORK_ALIAS_MAP)
+        ref["publicationTitleRaw"] = raw_title
+        ref["publicationTitleNorm"] = canonical.get("normTitle") or ""
+        ref["workKey"] = canonical.get("workKey") or ""
+        ref["workMatchType"] = canonical.get("matchType") or "normalized"
+        display = canonical.get("displayTitle") or raw_title
+        ref["publicationTitleDisplay"] = display
+        output.append(ref)
+    return output
+
+
 # =============================================================================
 # 5) PERSISTENCE
 # =============================================================================
@@ -465,6 +486,7 @@ def main() -> int:
     log("Processando resposta para gerar JSON estruturado")
     try:
         refs = parse_doctrine_protocol(content)
+        refs = _apply_work_keys(refs)
     except Exception as e:
         log(f"Erro ao parsear resposta: {e}")
         if doc_id is not None:

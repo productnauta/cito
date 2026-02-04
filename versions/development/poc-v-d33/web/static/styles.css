@@ -608,12 +608,129 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.chip-link {
+  text-decoration: none;
+  color: inherit;
+}
+
 .chip-row--hidden {
   display: none;
 }
 
 .table-row--hidden {
   display: none;
+}
+
+.vote-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.vote-badge--deferido {
+  background: #e7f6ee;
+  color: #1f7a46;
+  border-color: #c6e7d2;
+}
+
+.vote-badge--indeferido {
+  background: #fde8e7;
+  color: #b9382a;
+  border-color: #f3c6c1;
+}
+
+.vote-badge--parcial {
+  background: #fff3d6;
+  color: #9a5a00;
+  border-color: #f2dfb3;
+}
+
+.vote-badge--outros {
+  background: #ececec;
+  color: #5b5b63;
+  border-color: #d6d6d6;
+}
+
+.timeline {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0 0 0 22px;
+  border-left: 2px solid var(--line);
+}
+
+.timeline li {
+  position: relative;
+  padding: 10px 0 10px 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.timeline li::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  width: 12px;
+  height: 12px;
+  background: #0f6b6a;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px #e0f2f1;
+}
+
+.timeline-date {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 96px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f7f3ea;
+  text-align: center;
+}
+
+.timeline-label {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.argument-map {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.argument-node {
+  background: #fffdf7;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.argument-node span {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.argument-node strong {
+  font-size: 16px;
+}
+
+.argument-node--center {
+  background: #e0f2f1;
+  border-color: #b7dfd8;
 }
 
 .chip.small {
