@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 from uuid import uuid4
 import subprocess
 from datetime import date, datetime, timedelta, timezone
@@ -52,7 +53,8 @@ COLLECTION_NAME = "case_data"
 DOCTRINE_PATH = "caseData.doctrineReferences"
 DECISION_DETAILS_PATH = "caseData.decisionDetails"
 MINISTER_VOTES_PATH = f"{DECISION_DETAILS_PATH}.ministerVotes"
-DECISION_RESULT_PATH = f"{DECISION_DETAILS_PATH}.finalDecision"
+DECISION_RESULT_PATH = f"{DECISION_DETAILS_PATH}.decisionResult.finalDecision"
+DECISION_RESULT_LEGACY_PATH = f"{DECISION_DETAILS_PATH}.finalDecision"
 CITATIONS_PATH = f"{DECISION_DETAILS_PATH}.citations"
 KEYWORDS_PATH = "caseData.caseKeywords"
 LEGISLATION_PATH = "caseData.legislationReferences"
@@ -249,26 +251,70 @@ def _parse_datetime_local(value: str) -> Optional[datetime]:
         return None
 
 
+def _fold_text(value: Any) -> str:
+    if value is None:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(value))
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch)).casefold()
+
+
+def _extract_final_decision(decision_details: Any) -> Optional[str]:
+    if not isinstance(decision_details, dict):
+        return None
+
+    decision_result = decision_details.get("decisionResult")
+    candidate: Any = None
+    if isinstance(decision_result, dict):
+        candidate = decision_result.get("finalDecision")
+    elif isinstance(decision_result, str):
+        candidate = decision_result
+
+    if candidate in (None, ""):
+        candidate = decision_details.get("finalDecision")
+
+    if candidate is None:
+        return None
+    text = str(candidate).strip()
+    return text or None
+
+
 def _normalize_decision_label(value: Optional[str]) -> str:
     if value is None:
         return "Não identificado"
     s = str(value).strip()
     if not s:
         return "Não identificado"
-    low = s.lower()
-    if "parcial" in low:
-        return "Parcialmente indeferido"
-    if any(tok in low for tok in ["defer", "procedente", "favoravel", "favorável"]):
-        return "Deferido"
-    if any(tok in low for tok in ["indefer", "improcedente", "contrario", "contrário"]):
-        return "Indeferido"
+    low = _fold_text(s).replace("_", " ")
+    low = re.sub(r"\s+", " ", low).strip()
+
+    if low in {"procedente"}:
+        return "Procedente"
+    if low in {"improcedente"}:
+        return "Improcedente"
+    if low in {"parcialmente procedente", "parcial procedente"}:
+        return "Parcialmente procedente"
+    if low in {"parcialmente improcedente", "parcial improcedente"}:
+        return "Parcialmente improcedente"
+    if low in {"outro", "outros"}:
+        return "Outros"
+
+    if "parcial" in low and any(tok in low for tok in ["procedente", "defer", "provimento", "favoravel"]):
+        return "Parcialmente procedente"
+    if "parcial" in low and any(tok in low for tok in ["improcedente", "indefer", "negado", "rejeitado", "desprovido", "contrario"]):
+        return "Parcialmente improcedente"
+
+    if any(tok in low for tok in ["procedente", "defer", "provimento", "favoravel"]):
+        return "Procedente"
+    if any(tok in low for tok in ["improcedente", "indefer", "negado", "rejeitado", "desprovido", "contrario"]):
+        return "Improcedente"
+
     return "Outros"
 
 
 def _normalize_decision_text(value: Optional[str]) -> str:
     if value is None:
         return "Não informado"
-    s = " ".join(str(value).split()).strip()
+    s = " ".join(str(value).replace("_", " ").split()).strip()
     if not s:
         return "Não informado"
     return " ".join(part.capitalize() for part in s.split())
@@ -295,14 +341,31 @@ def _normalize_vote_label(value: Optional[str]) -> str:
     s = str(value).strip()
     if not s:
         return "Outros"
-    return _normalize_decision_label(s)
+    low = _fold_text(s).replace("_", " ")
+    low = re.sub(r"\s+", " ", low).strip()
+
+    if any(tok in low for tok in ["favoravel", "a favor", "acompanha", "acompanhar"]):
+        return "Favorável"
+    if any(tok in low for tok in ["contrario", "contra"]):
+        return "Contrário"
+    if "diverg" in low:
+        return "Divergente"
+    if "vencid" in low:
+        return "Vencido"
+
+    return "Outros"
 
 
 def _vote_badge_class(label: str) -> str:
     mapping = {
-        "Deferido": "vote-badge--deferido",
-        "Indeferido": "vote-badge--indeferido",
-        "Parcialmente indeferido": "vote-badge--parcial",
+        "Procedente": "vote-badge--deferido",
+        "Improcedente": "vote-badge--indeferido",
+        "Parcialmente procedente": "vote-badge--parcial",
+        "Parcialmente improcedente": "vote-badge--parcial",
+        "Favorável": "vote-badge--deferido",
+        "Contrário": "vote-badge--indeferido",
+        "Divergente": "vote-badge--parcial",
+        "Vencido": "vote-badge--outros",
         "Outros": "vote-badge--outros",
     }
     return mapping.get(label, "vote-badge--outros")
@@ -573,7 +636,7 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
 
     if decision_value:
         rx = _regex(decision_value)
-        and_clauses.append({DECISION_RESULT_PATH: rx})
+        and_clauses.append({"$or": [{DECISION_RESULT_PATH: rx}, {DECISION_RESULT_LEGACY_PATH: rx}]})
 
     if year_raw.isdigit():
         year = int(year_raw)
@@ -879,6 +942,7 @@ def _fetch_cases(collection: Collection, match: Dict[str, Any], limit: Optional[
         "caseContent.caseUrl": 1,
         "dates.judgmentDate": 1,
         DECISION_RESULT_PATH: 1,
+        DECISION_RESULT_LEGACY_PATH: 1,
         MINISTER_VOTES_PATH: 1,
     }
     cursor = collection.find(match, projection=projection).sort("dates.judgmentDate", -1)
@@ -898,15 +962,21 @@ def _fetch_cases(collection: Collection, match: Dict[str, Any], limit: Optional[
         judging_body = identity.get("judgingBody") or case_ident.get("judgingBody") or "-"
         case_url = case_content.get("caseUrl") or identity.get("caseUrl") or ""
         judgment_date = _format_date(dates.get("judgmentDate"))
-        decision_final = decision_details.get("finalDecision") or "—"
+        decision_final_raw = _extract_final_decision(decision_details)
+        decision_final = _normalize_decision_label(decision_final_raw) if decision_final_raw else "—"
         minister_votes = decision_details.get("ministerVotes") or []
         vote_type = "—"
-        if rapporteur != "-" and minister_votes:
-            rapporteur_key = str(rapporteur).strip().lower()
+        if rapporteur != "-" and isinstance(minister_votes, list) and minister_votes:
+            rapporteur_norm = normalize_minister_name(rapporteur) or str(rapporteur).strip()
+            rapporteur_key = rapporteur_norm.casefold()
             for entry in minister_votes:
-                minister_name = str(entry.get("ministerName") or "").strip().lower()
-                if minister_name and minister_name == rapporteur_key:
-                    vote_type = entry.get("voteType") or "—"
+                if not isinstance(entry, dict):
+                    continue
+                minister_name_raw = entry.get("ministerName") or entry.get("minister")
+                minister_name_norm = normalize_minister_name(minister_name_raw) or str(minister_name_raw or "").strip()
+                if minister_name_norm and minister_name_norm.casefold() == rapporteur_key:
+                    vote_raw = entry.get("voteType") or entry.get("vote")
+                    vote_type = _normalize_vote_label(vote_raw) if vote_raw else "—"
                     break
 
         cases.append(
@@ -1040,7 +1110,7 @@ def _aggregate_decision_distribution(
         {
             "$addFields": {
                 "_finalDecision": {
-                    "$ifNull": [f"${DECISION_RESULT_PATH}", "Não informado"]
+                    "$ifNull": [f"${DECISION_RESULT_PATH}", f"${DECISION_RESULT_LEGACY_PATH}", "Não informado"]
                 }
             }
         }
@@ -1753,9 +1823,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     if identity.get("caseUrl"):
         links.append({"label": "URL de identificacao", "url": identity.get("caseUrl")})
 
-    decision_final_raw = (
-        decision_details.get("finalDecision") if isinstance(decision_details, dict) else None
-    )
+    decision_final_raw = _extract_final_decision(decision_details)
     decision_final = _normalize_decision_label(decision_final_raw)
 
     minister_votes_raw = decision_details.get("ministerVotes") if isinstance(decision_details, dict) else []
@@ -2174,7 +2242,7 @@ def _fetch_author_citations(
                 "_judgingBody": {
                     "$ifNull": ["$identity.judgingBody", "$caseIdentification.judgingBody"]
                 },
-                "_decisionFinal": {"$ifNull": [f"${DECISION_RESULT_PATH}", None]},
+                "_decisionFinal": {"$ifNull": [f"${DECISION_RESULT_PATH}", f"${DECISION_RESULT_LEGACY_PATH}", None]},
             }
         },
         {
@@ -2228,6 +2296,7 @@ def _fetch_legislation_detail(
         "caseContent.caseUrl": 1,
         "dates.judgmentDate": 1,
         DECISION_RESULT_PATH: 1,
+        DECISION_RESULT_LEGACY_PATH: 1,
         LEGISLATION_PATH: 1,
     }
     cursor = collection.find(match, projection=projection)
@@ -2247,7 +2316,7 @@ def _fetch_legislation_detail(
         judging_body = identity.get("judgingBody") or case_ident.get("judgingBody") or "-"
         judgment_date = _format_date((doc.get("dates") or {}).get("judgmentDate"))
         decision_final = _normalize_decision_text(
-            (case_data.get("decisionDetails") or {}).get("finalDecision")
+            _extract_final_decision(case_data.get("decisionDetails") or {})
         )
         case_url = (doc.get("caseContent") or {}).get("caseUrl") or identity.get("caseUrl")
         stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
@@ -2948,6 +3017,7 @@ def _compute_minister_reference_stats(
         "caseData.doctrineReferences": 1,
         "caseData.notesReferences": 1,
         DECISION_RESULT_PATH: 1,
+        DECISION_RESULT_LEGACY_PATH: 1,
         "dates.judgmentDate": 1,
     }
     cursor = collection.find(match, projection=projection)
@@ -3032,7 +3102,7 @@ def _compute_minister_reference_stats(
                     acordao_counter[raw_ref] += 1
 
         decision_raw = _normalize_ref_text(
-            (doc.get("caseData") or {}).get("decisionDetails", {}).get("finalDecision")
+            _extract_final_decision((doc.get("caseData") or {}).get("decisionDetails") or {})
         )
         decision_label = _normalize_decision_text(decision_raw)
         decision_counter[decision_label] += 1
@@ -3091,6 +3161,7 @@ def _fetch_relatoria_cases(collection: Collection, match: Dict[str, Any]) -> Lis
         "caseTitle": 1,
         "dates.judgmentDate": 1,
         DECISION_RESULT_PATH: 1,
+        DECISION_RESULT_LEGACY_PATH: 1,
     }
     cursor = collection.find(match, projection=projection).sort("dates.judgmentDate", -1)
     rows: List[Dict[str, Any]] = []
@@ -3108,7 +3179,8 @@ def _fetch_relatoria_cases(collection: Collection, match: Dict[str, Any]) -> Lis
         else:
             process_label = case_class or case_number or "-"
 
-        decision_final = decision_details.get("finalDecision") or "—"
+        decision_final_raw = _extract_final_decision(decision_details)
+        decision_final = _normalize_decision_text(decision_final_raw) if decision_final_raw else "—"
 
         rows.append(
             {
