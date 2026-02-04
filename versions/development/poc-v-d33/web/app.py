@@ -951,6 +951,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
     dates = doc.get("dates") or {}
     case_content = doc.get("caseContent") or {}
     case_data = doc.get("caseData") or {}
+    decision_details = case_data.get("decisionDetails") or {}
 
     doctrine_refs = case_data.get("doctrineReferences") or []
     legislation_refs_raw = case_data.get("legislationReferences") or []
