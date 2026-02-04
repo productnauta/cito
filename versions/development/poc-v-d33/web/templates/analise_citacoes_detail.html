@@ -55,11 +55,15 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel filter-panel is-collapsed" data-filter-card>
       <div class="panel-header">
         <h2>Detalhes das citacoes</h2>
+        <button type="button" class="secondary filter-toggle" data-filter-toggle aria-expanded="false">
+          Mostrar filtros
+        </button>
       </div>
-      <form class="filters" method="get">
+      <div class="filter-panel__body">
+        <form class="filters" method="get">
         <input type="hidden" name="kind" value="{{ detail_key }}" />
         <input type="hidden" name="value" value="{{ detail_value }}" />
         {% for key, value in filter_params.items() %}
@@ -79,16 +83,17 @@
           <span>Decisao final</span>
           <input type="text" name="decision" value="{{ filters.decision }}" placeholder="Ex: Procedente" />
         </label>
-        <div class="actions">
-          <button type="submit">Aplicar filtros</button>
-          <a
-            class="secondary"
-            href="{{ url_for('analise_citacoes_detail', kind=detail_key, value=detail_value, **filter_params) }}"
-          >
-            Limpar
-          </a>
-        </div>
-      </form>
+          <div class="actions">
+            <button type="submit">Aplicar filtros</button>
+            <a
+              class="secondary"
+              href="{{ url_for('analise_citacoes_detail', kind=detail_key, value=detail_value, **filter_params) }}"
+            >
+              Limpar
+            </a>
+          </div>
+        </form>
+      </div>
       {% if citations %}
         <table class="data-table">
           <thead>

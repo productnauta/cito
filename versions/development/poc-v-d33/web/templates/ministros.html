@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel">
+  <section class="panel filter-panel is-collapsed" data-filter-card>
     <div class="panel-header">
       <h1>Análise de Ministros</h1>
+      <button type="button" class="secondary filter-toggle" data-filter-toggle aria-expanded="false">
+        Mostrar filtros
+      </button>
     </div>
-    <form class="filters" method="get">
+    <div class="filter-panel__body">
+      <form class="filters" method="get">
       <label class="field">
         <span>Ministro</span>
         <select name="minister">
@@ -44,11 +48,12 @@
         <span>Data final</span>
         <input type="date" name="date_end" value="{{ filters.date_end }}" />
       </label>
-      <div class="actions">
-        <button type="submit">Aplicar filtros</button>
-        <a class="secondary" href="{{ url_for('ministros') }}">Limpar</a>
-      </div>
-    </form>
+        <div class="actions">
+          <button type="submit">Aplicar filtros</button>
+          <a class="secondary" href="{{ url_for('ministros') }}">Limpar</a>
+        </div>
+      </form>
+    </div>
   </section>
 
   <section class="kpi-row kpi-row--line5">

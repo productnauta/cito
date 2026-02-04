@@ -31,5 +31,30 @@
         <span>Flask + MongoDB</span>
       </footer>
     </div>
+    <script>
+      (function () {
+        const cards = document.querySelectorAll("[data-filter-card]");
+        if (!cards.length) return;
+
+        cards.forEach((card) => {
+          const toggle = card.querySelector("[data-filter-toggle]");
+          const body = card.querySelector(".filter-panel__body");
+          if (!toggle || !body) return;
+
+          const setState = (collapsed) => {
+            card.classList.toggle("is-collapsed", collapsed);
+            toggle.setAttribute("aria-expanded", String(!collapsed));
+            toggle.textContent = collapsed ? "Mostrar filtros" : "Recolher filtros";
+          };
+
+          setState(true);
+
+          toggle.addEventListener("click", () => {
+            const collapsed = !card.classList.contains("is-collapsed");
+            setState(collapsed);
+          });
+        });
+      })();
+    </script>
   </body>
 </html>

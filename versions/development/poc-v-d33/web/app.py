@@ -2569,11 +2569,29 @@ def _abbrev_minister_label(name: str) -> str:
 
 
 def _abbrev_author_label(name: str) -> str:
-    parts = [p for p in re.split(r"\s+", str(name or "").strip()) if p]
-    if len(parts) <= 1:
-        return str(name or "").strip()
+    raw = str(name or "").strip()
+    if not raw:
+        return ""
 
     particles = {"da", "de", "do", "das", "dos", "e"}
+    if "," in raw:
+        surname_part, rest = [part.strip() for part in raw.split(",", 1)]
+        surname = surname_part.title() if surname_part.isupper() else surname_part
+        rest_parts = [p for p in re.split(r"\s+", rest) if p]
+        initials = []
+        for token in rest_parts:
+            clean = re.sub(r"[^A-Za-zÀ-ÿ]", "", token)
+            if not clean or clean.casefold() in particles:
+                continue
+            initials.append(f"{clean[0].upper()}.")
+        if initials:
+            return " ".join(initials + [surname])
+        return surname
+
+    parts = [p for p in re.split(r"\s+", raw) if p]
+    if len(parts) <= 1:
+        return raw
+
     surname_parts = [parts[-1]]
     if len(parts) >= 2 and parts[-2].casefold() in particles:
         surname_parts.insert(0, parts[-2])
@@ -3230,19 +3248,36 @@ def analise_citacoes() -> Any:
     legislations_rows = legislations[:legislation_limit]
     acordaos_rows = acordaos[:acordao_limit]
 
+    raw_ministers = heatmap_raw.get("ministers", [])
+    raw_rows = heatmap_raw.get("rows", [])
+    keep_cols: List[int] = []
+    if raw_ministers and raw_rows:
+        col_totals = [0 for _ in raw_ministers]
+        for row in raw_rows:
+            for idx, cell in enumerate(row.get("cells", [])):
+                col_totals[idx] += int(cell.get("count", 0))
+        keep_cols = [idx for idx, total in enumerate(col_totals) if total > 0]
+
+    filtered_ministers = [raw_ministers[idx] for idx in keep_cols] if keep_cols else raw_ministers
+    filtered_rows = []
+    for row in raw_rows:
+        cells = row.get("cells", [])
+        if keep_cols:
+            cells = [cells[idx] for idx in keep_cols if idx < len(cells)]
+        if any(int(cell.get("count", 0)) > 0 for cell in cells):
+            filtered_rows.append(
+                {
+                    "author_full": row.get("author"),
+                    "author_label": _abbrev_author_label(row.get("author")),
+                    "cells": cells,
+                }
+            )
+
     heatmap = {
         "ministers": [
-            {"full": name, "label": _abbrev_minister_label(name)}
-            for name in heatmap_raw.get("ministers", [])
+            {"full": name, "label": _abbrev_minister_label(name)} for name in filtered_ministers
         ],
-        "rows": [
-            {
-                "author_full": row.get("author"),
-                "author_label": _abbrev_author_label(row.get("author")),
-                "cells": row.get("cells", []),
-            }
-            for row in heatmap_raw.get("rows", [])
-        ],
+        "rows": filtered_rows,
     }
 
     top_authors = authors[:6]

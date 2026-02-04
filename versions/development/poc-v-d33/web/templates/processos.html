@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 
 {% block content %}
-  <section class="panel">
+  <section class="panel filter-panel is-collapsed" data-filter-card>
     <div class="panel-header">
       <div>
         <h1>Processos</h1>
         <p class="panel-copy">Visualize os processos extraidos e filtre por criterios juridicos.</p>
       </div>
       <span class="chip">{{ total }} processos</span>
+      <button type="button" class="secondary filter-toggle" data-filter-toggle aria-expanded="false">
+        Mostrar filtros
+      </button>
     </div>
-    <form class="filters" method="get">
+    <div class="filter-panel__body">
+      <form class="filters" method="get">
       <label class="field">
         <span>Titulo do processo</span>
         <input type="text" name="title" value="{{ filters.title }}" placeholder="Ex: ADI 1234" />
@@ -57,11 +61,12 @@
         <span>Acordao</span>
         <input type="text" name="acordao_ref" value="{{ filters.acordao_ref }}" placeholder="Ex: ADI 1234" />
       </label>
-      <div class="actions">
-        <button type="submit">Aplicar filtros</button>
-        <a class="secondary" href="{{ url_for('processos') }}">Limpar</a>
-      </div>
-    </form>
+        <div class="actions">
+          <button type="submit">Aplicar filtros</button>
+          <a class="secondary" href="{{ url_for('processos') }}">Limpar</a>
+        </div>
+      </form>
+    </div>
   </section>
 
   <section class="summary-cards" id="process-kpis">

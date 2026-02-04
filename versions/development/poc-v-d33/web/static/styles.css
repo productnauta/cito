@@ -136,6 +136,26 @@ a:hover {
   gap: 16px;
 }
 
+.filter-panel__body {
+  margin-top: 18px;
+  max-height: 2000px;
+  opacity: 1;
+  overflow: hidden;
+  transition: max-height 0.35s ease, opacity 0.25s ease, margin-top 0.25s ease;
+}
+
+.filter-panel.is-collapsed .filter-panel__body {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  pointer-events: none;
+}
+
+.filter-toggle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -454,6 +474,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 
 .heatmap th,
@@ -482,9 +503,22 @@ table {
   font-weight: 600;
 }
 
+.heatmap-label a {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .heat-cell {
   min-width: 48px;
   border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.heat-cell.is-zero {
+  color: transparent;
 }
 
 .heat-0 {

@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="panel">
+  <section class="panel filter-panel is-collapsed" data-filter-card>
     <div class="panel-header">
       <h1>Análise de Citações</h1>
+      <button type="button" class="secondary filter-toggle" data-filter-toggle aria-expanded="false">
+        Mostrar filtros
+      </button>
     </div>
-    <form class="filters" method="get">
+    <div class="filter-panel__body">
+      <form class="filters" method="get">
       <label class="field">
         <span>Autor</span>
         <input type="text" name="author" value="{{ filters.author }}" placeholder="Ex: HORTA" />
@@ -25,11 +29,12 @@
         <span>Relator</span>
         <input type="text" name="rapporteur" value="{{ filters.rapporteur }}" placeholder="Ex: Gilmar Mendes" />
       </label>
-      <div class="actions">
-        <button type="submit">Aplicar filtros</button>
-        <a class="secondary" href="{{ url_for('analise_citacoes') }}">Limpar</a>
-      </div>
-    </form>
+        <div class="actions">
+          <button type="submit">Aplicar filtros</button>
+          <a class="secondary" href="{{ url_for('analise_citacoes') }}">Limpar</a>
+        </div>
+      </form>
+    </div>
   </section>
 
   <section class="kpi-row kpi-row--line1">
@@ -115,7 +120,12 @@
               <th>Autor</th>
               {% for minister in heatmap.ministers %}
                 <th class="heatmap-rotated">
-                  <a href="{{ url_for('ministro_detail', minister=minister.full) }}">{{ minister.label }}</a>
+                  <a
+                    href="{{ url_for('ministro_detail', minister=minister.full) }}"
+                    title="{{ minister.full }}"
+                  >
+                    {{ minister.label }}
+                  </a>
                 </th>
               {% endfor %}
             </tr>
@@ -124,12 +134,21 @@
             {% for row in heatmap.rows %}
               <tr>
                 <td class="heatmap-label">
-                  <a href="{{ url_for('analise_citacoes_detail', kind='author', value=row.author_full, **filter_params) }}">
+                  <a
+                    href="{{ url_for('analise_citacoes_detail', kind='author', value=row.author_full, **filter_params) }}"
+                    title="{{ row.author_full }}"
+                  >
                     {{ row.author_label }}
                   </a>
                 </td>
                 {% for cell in row.cells %}
-                  <td class="heat-cell heat-{{ cell.level }}">{{ cell.count }}</td>
+                  {% set minister = heatmap.ministers[loop.index0] %}
+                  <td
+                    class="heat-cell heat-{{ cell.level }}{% if cell.count == 0 %} is-zero{% endif %}"
+                    title="{{ row.author_full }} / {{ minister.full }}: {{ cell.count }} citações"
+                  >
+                    {% if cell.count %}{{ cell.count }}{% else %}&nbsp;{% endif %}
+                  </td>
                 {% endfor %}
               </tr>
             {% endfor %}
