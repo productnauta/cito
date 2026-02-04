@@ -20,6 +20,8 @@ from typing import Optional
 
 
 _MIN_PREFIX_RE = re.compile(r"\bmin\.?\b", flags=re.IGNORECASE)
+_LEADING_PUNCT_RE = re.compile(r"^[\s\.\,\;\:\-\–\—\•\·]+")
+_LABELS = {"relator", "relatora", "redator", "redatora"}
 
 
 def normalize_minister_name(value: Optional[str]) -> Optional[str]:
@@ -35,7 +37,10 @@ def normalize_minister_name(value: Optional[str]) -> Optional[str]:
     if not s:
         return None
     s = _MIN_PREFIX_RE.sub("", s)
+    s = _LEADING_PUNCT_RE.sub("", s)
     s = re.sub(r"\s+", " ", s).strip()
     if not s:
+        return None
+    if s.lower() in _LABELS:
         return None
     return s.title()

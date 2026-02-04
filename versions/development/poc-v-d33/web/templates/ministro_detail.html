@@ -110,5 +110,72 @@
         <p class="empty">Sem referencias normativas ou jurisprudenciais para os filtros atuais.</p>
       {% endif %}
     </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Top 5 - Legislacoes citadas</h2>
+      </div>
+      {% if top_legislation %}
+        <table>
+          <thead>
+            <tr>
+              <th>Norma</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in top_legislation %}
+              <tr>
+                <td>
+                  {% if row.description and row.description != row.identifier %}
+                    {{ row.identifier }} — {{ row.description }}
+                  {% else %}
+                    {{ row.identifier }}
+                  {% endif %}
+                </td>
+                <td>{{ row.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="empty">Sem referencias legislativas para os filtros atuais.</p>
+      {% endif %}
+    </article>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Processos em que foi relator</h2>
+      <span class="chip">{{ relatoria_cases|length }} processos</span>
+    </div>
+    {% if relatoria_cases %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Titulo do caso</th>
+            <th>Processo</th>
+            <th>Decisao</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in relatoria_cases %}
+            <tr>
+              <td>
+                {% if row.stf_id %}
+                  <a href="{{ url_for('processos_detail', process_id=row.stf_id) }}">{{ row.case_title }}</a>
+                {% else %}
+                  {{ row.case_title }}
+                {% endif %}
+              </td>
+              <td>{{ row.process_label }}</td>
+              <td>{{ row.decision_final }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Nenhum processo encontrado para este ministro.</p>
+    {% endif %}
   </section>
 {% endblock %}

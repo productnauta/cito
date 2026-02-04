@@ -135,6 +135,31 @@ def _parse_datetime_local(value: str) -> Optional[datetime]:
         return None
 
 
+def _normalize_decision_label(value: Optional[str]) -> str:
+    if value is None:
+        return "Não identificado"
+    s = str(value).strip()
+    if not s:
+        return "Não identificado"
+    low = s.lower()
+    if "parcial" in low:
+        return "Parcialmente indeferido"
+    if any(tok in low for tok in ["defer", "procedente", "favoravel", "favorável"]):
+        return "Deferido"
+    if any(tok in low for tok in ["indefer", "improcedente", "contrario", "contrário"]):
+        return "Indeferido"
+    return "Outros"
+
+
+def _normalize_vote_label(value: Optional[str]) -> str:
+    if value is None:
+        return "Outros"
+    s = str(value).strip()
+    if not s:
+        return "Outros"
+    return _normalize_decision_label(s)
+
+
 def _as_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
@@ -404,6 +429,8 @@ def _build_match(filters: Dict[str, str], overrides: Optional[Dict[str, Tuple[st
         elem["publicationTitle"] = _regex(title_value, exact=title_exact)
     if elem:
         and_clauses.append({DOCTRINE_PATH: {"$elemMatch": elem}})
+    elif minister_value:
+        and_clauses.append({DOCTRINE_PATH: {"$exists": True, "$ne": []}})
 
     if not and_clauses:
         return {}
@@ -954,11 +981,14 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         parties.append({"type": party_type, "name": party_name})
     legislation_refs = []
     legislation_ids = []
+    legislation_refs_total = 0
     for norm in legislation_refs_raw:
         if not isinstance(norm, dict):
             norm_id = str(norm)
             legislation_refs.append({"normIdentifier": norm_id})
             legislation_ids.append(norm_id)
+            if norm_id:
+                legislation_refs_total += 1
             continue
         norm_id = norm.get("normIdentifier")
         norm_id_str = str(norm_id).strip() if norm_id is not None else ""
@@ -972,7 +1002,13 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
                 norm_id_str = norm_desc or norm_id_str or "—"
         legislation_refs.append({"normIdentifier": norm_id_str})
         legislation_ids.append(norm_id_str)
+        refs = norm.get("normReferences")
+        if isinstance(refs, list) and refs:
+            legislation_refs_total += len(refs)
+        elif norm_id_str:
+            legislation_refs_total += 1
     legislation_ids = [n for n in legislation_ids if n and n != "—"]
+    legislation_norms_total = len({n for n in legislation_ids if n})
     keywords = case_data.get("caseKeywords") or []
 
     links = []
@@ -980,6 +1016,30 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         links.append({"label": "Pagina do processo", "url": case_content.get("caseUrl")})
     if identity.get("caseUrl"):
         links.append({"label": "URL de identificacao", "url": identity.get("caseUrl")})
+
+    decision_final_raw = (
+        (decision_details.get("decisionResult") or {}).get("finalDecision")
+        if isinstance(decision_details, dict)
+        else None
+    )
+    decision_final = _normalize_decision_label(decision_final_raw)
+
+    minister_votes_raw = decision_details.get("ministerVotes") if isinstance(decision_details, dict) else []
+    minister_votes = []
+    if isinstance(minister_votes_raw, list):
+        for vote in minister_votes_raw:
+            if not isinstance(vote, dict):
+                continue
+            name = normalize_minister_name(vote.get("ministerName") or vote.get("minister"))
+            vote_result = _normalize_vote_label(vote.get("voteType") or vote.get("vote"))
+            if not name and not vote_result:
+                continue
+            minister_votes.append(
+                {
+                    "minister": name or "—",
+                    "vote": vote_result or "Outros",
+                }
+            )
 
     return {
         "id": str(doc.get("_id")),
@@ -994,8 +1054,13 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         "keywords": keywords,
         "legislation_refs": legislation_refs,
         "legislation_ids": legislation_ids,
+        "legislation_refs_total": legislation_refs_total,
+        "legislation_norms_total": legislation_norms_total,
         "parties": parties,
+        "parties_count": len(parties),
         "links": links,
+        "decision_final": decision_final,
+        "minister_votes": minister_votes,
     }
 
 
@@ -1297,6 +1362,8 @@ def _aggregate_author_suggestions(collection: Collection, limit: int = 200) -> L
 def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> List[Dict[str, Any]]:
     case_match = _build_ministro_case_match(filters)
     minister_value = filters.get("minister") or ""
+    if minister_value:
+        minister_value = normalize_minister_name(minister_value) or minister_value
     minister_regex = _regex(minister_value, exact=True) if minister_value else None
     all_citation_types = [
         "doutrina",
@@ -1310,15 +1377,7 @@ def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> Lis
     rapporteur_pipeline: List[Dict[str, Any]] = []
     if case_match:
         rapporteur_pipeline.append({"$match": case_match})
-    rapporteur_pipeline.append(
-        {
-            "$addFields": {
-                "_rapporteur": {
-                    "$ifNull": ["$identity.rapporteur", "$caseIdentification.rapporteur"]
-                }
-            }
-        }
-    )
+    rapporteur_pipeline.append({"$addFields": {"_rapporteur": "$identity.rapporteur"}})
     if minister_regex:
         rapporteur_pipeline.append({"$match": {"_rapporteur": minister_regex}})
     rapporteur_pipeline.append({"$match": {"_rapporteur": {"$nin": [None, ""]}}})
@@ -1445,24 +1504,34 @@ def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> Lis
 
     stats: Dict[str, Dict[str, Any]] = {}
     for row in collection.aggregate(rapporteur_pipeline):
-        name = row["label"]
-        stats[name] = {
-            "minister": name,
-            "case_ids": set(row.get("case_ids") or []),
-            "total_relatorias": row.get("total_relatorias") or 0,
-            "citations_total": 0,
-            "total_votes_defined": 0,
-            "total_votes_pending": 0,
-            "total_votes_vencido": 0,
-        }
-
-    for row in collection.aggregate(vote_pipeline):
-        name = row["label"]
+        raw_name = row.get("label") or ""
+        name = normalize_minister_name(raw_name) or raw_name
         entry = stats.get(name)
         if not entry:
             entry = {
                 "minister": name,
                 "case_ids": set(),
+                "relatoria_case_ids": set(),
+                "total_relatorias": 0,
+                "citations_total": 0,
+                "total_votes_defined": 0,
+                "total_votes_pending": 0,
+                "total_votes_vencido": 0,
+            }
+            stats[name] = entry
+        entry["relatoria_case_ids"].update(row.get("case_ids") or [])
+        entry["case_ids"].update(row.get("case_ids") or [])
+        entry["total_relatorias"] = len(entry["relatoria_case_ids"])
+
+    for row in collection.aggregate(vote_pipeline):
+        raw_name = row.get("label") or ""
+        name = normalize_minister_name(raw_name) or raw_name
+        entry = stats.get(name)
+        if not entry:
+            entry = {
+                "minister": name,
+                "case_ids": set(),
+                "relatoria_case_ids": set(),
                 "total_relatorias": 0,
                 "citations_total": 0,
                 "total_votes_defined": 0,
@@ -1476,12 +1545,14 @@ def _aggregate_ministers(collection: Collection, filters: Dict[str, str]) -> Lis
         entry["total_votes_vencido"] += row.get("total_votes_vencido") or 0
 
     for row in collection.aggregate(citations_pipeline):
-        name = row["label"]
+        raw_name = row.get("label") or ""
+        name = normalize_minister_name(raw_name) or raw_name
         entry = stats.get(name)
         if not entry:
             entry = {
                 "minister": name,
                 "case_ids": set(),
+                "relatoria_case_ids": set(),
                 "total_relatorias": 0,
                 "citations_total": 0,
                 "total_votes_defined": 0,
@@ -1525,6 +1596,21 @@ def _build_minister_match(filters: Dict[str, str], minister_name: str) -> Dict[s
     return {"$and": [case_match, minister_match]}
 
 
+def _build_relatoria_match(filters: Dict[str, str], minister_name: str) -> Dict[str, Any]:
+    case_match = _build_ministro_case_match(filters)
+    minister_name = normalize_minister_name(minister_name) or minister_name
+    minister_regex = _regex(minister_name, exact=True)
+    relatoria_match = {
+        "$or": [
+            {"identity.rapporteur": minister_regex},
+            {"caseIdentification.rapporteur": minister_regex},
+        ]
+    }
+    if not case_match:
+        return relatoria_match
+    return {"$and": [case_match, relatoria_match]}
+
+
 def _count_distinct_cases(collection: Collection, match: Dict[str, Any]) -> int:
     pipeline: List[Dict[str, Any]] = [
         {"$match": match},
@@ -1556,20 +1642,7 @@ def _aggregate_minister_detail(
 
     total_processes = _count_distinct_cases(collection, match)
 
-    relatoria_match = {
-        "$and": [
-            _build_ministro_case_match(filters) or {},
-            {
-                "$or": [
-                    {"identity.rapporteur": _regex(minister_name, exact=True)},
-                    {"caseIdentification.rapporteur": _regex(minister_name, exact=True)},
-                ]
-            },
-        ]
-    }
-    relatoria_match = {
-        "$and": [clause for clause in relatoria_match["$and"] if clause]
-    }
+    relatoria_match = _build_relatoria_match(filters, minister_name)
     total_relatorias = _count_distinct_cases(collection, relatoria_match)
 
     citations_pipeline = [
@@ -1630,6 +1703,91 @@ def _aggregate_minister_detail(
         "top_doctrine": top_doctrine,
         "top_norms": top_norms,
     }
+
+
+def _aggregate_top_legislation_for_minister(
+    collection: Collection, match: Dict[str, Any], limit: int = 5
+) -> List[Dict[str, Any]]:
+    pipeline: List[Dict[str, Any]] = []
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$unwind": f"${LEGISLATION_PATH}"})
+    pipeline.append(
+        {
+            "$addFields": {
+                "_normId": {
+                    "$ifNull": [f"${LEGISLATION_PATH}.normIdentifier", f"${LEGISLATION_PATH}.normDescription"]
+                },
+                "_normDesc": f"${LEGISLATION_PATH}.normDescription",
+            }
+        }
+    )
+    pipeline.append({"$match": {"_normId": {"$nin": [None, ""]}}})
+    pipeline.append(
+        {
+            "$group": {
+                "_id": {"identifier": "$_normId", "description": "$_normDesc"},
+                "total": {"$sum": 1},
+            }
+        }
+    )
+    pipeline.append(
+        {
+            "$project": {
+                "_id": 0,
+                "identifier": "$_id.identifier",
+                "description": "$_id.description",
+                "total": 1,
+            }
+        }
+    )
+    pipeline.append({"$sort": {"total": -1, "identifier": 1}})
+    if limit:
+        pipeline.append({"$limit": limit})
+    return list(collection.aggregate(pipeline))
+
+
+def _fetch_relatoria_cases(collection: Collection, match: Dict[str, Any]) -> List[Dict[str, Any]]:
+    projection = {
+        "identity.stfDecisionId": 1,
+        "identity.caseTitle": 1,
+        "identity.caseClass": 1,
+        "identity.caseNumber": 1,
+        "caseIdentification.caseClass": 1,
+        "caseIdentification.caseNumber": 1,
+        "caseTitle": 1,
+        "dates.judgmentDate": 1,
+        DECISION_RESULT_PATH: 1,
+    }
+    cursor = collection.find(match, projection=projection).sort("dates.judgmentDate", -1)
+    rows: List[Dict[str, Any]] = []
+    for doc in cursor:
+        identity = doc.get("identity") or {}
+        case_ident = doc.get("caseIdentification") or {}
+        decision_details = (doc.get("caseData") or {}).get("decisionDetails") or {}
+
+        case_title = identity.get("caseTitle") or doc.get("caseTitle") or "-"
+        stf_id = identity.get("stfDecisionId") or str(doc.get("_id"))
+        case_class = identity.get("caseClass") or case_ident.get("caseClass") or ""
+        case_number = identity.get("caseNumber") or case_ident.get("caseNumber") or ""
+        if case_class and case_number:
+            process_label = f"{case_class} {case_number}"
+        else:
+            process_label = case_class or case_number or "-"
+
+        decision_final = (
+            (decision_details.get("decisionResult") or {}).get("finalDecision") or "—"
+        )
+
+        rows.append(
+            {
+                "case_title": case_title,
+                "stf_id": stf_id,
+                "process_label": process_label,
+                "decision_final": decision_final,
+            }
+        )
+    return rows
 
 
 def _build_query_detail(case_query_doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -2146,6 +2304,10 @@ def ministro_detail() -> Any:
 
     collection = _get_collection()
     details = _aggregate_minister_detail(collection, filters, minister_name)
+    minister_match = _build_minister_match(filters, minister_name)
+    relatoria_match = _build_relatoria_match(filters, minister_name)
+    relatoria_cases = _fetch_relatoria_cases(collection, relatoria_match)
+    top_legislation = _aggregate_top_legislation_for_minister(collection, minister_match, limit=5)
 
     filter_params = {k: v for k, v in filters.items() if v}
     filter_params_no_minister = {k: v for k, v in filter_params.items() if k != "minister"}
@@ -2162,6 +2324,8 @@ def ministro_detail() -> Any:
         decision_distribution=details["decision_distribution"],
         top_doctrine=details["top_doctrine"],
         top_norms=details["top_norms"],
+        top_legislation=top_legislation,
+        relatoria_cases=relatoria_cases,
     )
 
 

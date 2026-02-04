@@ -42,7 +42,48 @@
         <p class="card-value">{{ detail.doctrine_refs|length }}</p>
         <span class="card-meta">Total de referencias extraidas</span>
       </article>
+      <article class="card">
+        <h3>Legislacoes citadas</h3>
+        <p class="card-value">{{ detail.legislation_refs_total or 0 }}</p>
+        <span class="card-meta">Normas distintas: {{ detail.legislation_norms_total or 0 }}</span>
+      </article>
+      <article class="card">
+        <h3>Total de partes</h3>
+        <p class="card-value">{{ detail.parties_count or 0 }}</p>
+        <span class="card-meta">Partes identificadas</span>
+      </article>
+      <article class="card">
+        <h3>Decisao final</h3>
+        <p class="card-value">{{ detail.decision_final or 'Não identificado' }}</p>
+        <span class="card-meta">Resultado do julgamento</span>
+      </article>
     </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-header">
+      <h2>Votos dos ministros</h2>
+    </div>
+    {% if detail.minister_votes %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Ministro</th>
+            <th>Voto</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for vote in detail.minister_votes %}
+            <tr>
+              <td>{{ vote.minister }}</td>
+              <td>{{ vote.vote }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="empty">Sem dados de votos.</p>
+    {% endif %}
   </section>
 
   <section class="panel">
