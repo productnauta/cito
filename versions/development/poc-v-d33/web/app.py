@@ -52,7 +52,7 @@ COLLECTION_NAME = "case_data"
 DOCTRINE_PATH = "caseData.doctrineReferences"
 DECISION_DETAILS_PATH = "caseData.decisionDetails"
 MINISTER_VOTES_PATH = f"{DECISION_DETAILS_PATH}.ministerVotes"
-DECISION_RESULT_PATH = f"{DECISION_DETAILS_PATH}.decisionResult.finalDecision"
+DECISION_RESULT_PATH = f"{DECISION_DETAILS_PATH}.finalDecision"
 CITATIONS_PATH = f"{DECISION_DETAILS_PATH}.citations"
 KEYWORDS_PATH = "caseData.caseKeywords"
 LEGISLATION_PATH = "caseData.legislationReferences"
@@ -849,9 +849,7 @@ def _fetch_cases(collection: Collection, match: Dict[str, Any], limit: Optional[
         judging_body = identity.get("judgingBody") or case_ident.get("judgingBody") or "-"
         case_url = case_content.get("caseUrl") or identity.get("caseUrl") or ""
         judgment_date = _format_date(dates.get("judgmentDate"))
-        decision_final = (
-            (decision_details.get("decisionResult") or {}).get("finalDecision") or "—"
-        )
+        decision_final = decision_details.get("finalDecision") or "—"
         minister_votes = decision_details.get("ministerVotes") or []
         vote_type = "—"
         if rapporteur != "-" and minister_votes:
@@ -1709,9 +1707,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
         links.append({"label": "URL de identificacao", "url": identity.get("caseUrl")})
 
     decision_final_raw = (
-        (decision_details.get("decisionResult") or {}).get("finalDecision")
-        if isinstance(decision_details, dict)
-        else None
+        decision_details.get("finalDecision") if isinstance(decision_details, dict) else None
     )
     decision_final = _normalize_decision_label(decision_final_raw)
 
@@ -1722,7 +1718,7 @@ def _fetch_process_detail(collection: Collection, process_id: str) -> Optional[D
             if not isinstance(vote, dict):
                 continue
             name = normalize_minister_name(vote.get("ministerName") or vote.get("minister"))
-            vote_result = _normalize_vote_label(vote.get("voteType") or vote.get("vote"))
+            vote_result = _normalize_vote_label(vote.get("voteType"))
             if not name and not vote_result:
                 continue
             minister_votes.append(
@@ -2845,7 +2841,7 @@ def _compute_minister_reference_stats(
                     acordao_counter[raw_ref] += 1
 
         decision_raw = _normalize_ref_text(
-            (doc.get("caseData") or {}).get("decisionDetails", {}).get("decisionResult", {}).get("finalDecision")
+            (doc.get("caseData") or {}).get("decisionDetails", {}).get("finalDecision")
         )
         decision_label = _normalize_decision_text(decision_raw)
         decision_counter[decision_label] += 1
@@ -2919,9 +2915,7 @@ def _fetch_relatoria_cases(collection: Collection, match: Dict[str, Any]) -> Lis
         else:
             process_label = case_class or case_number or "-"
 
-        decision_final = (
-            (decision_details.get("decisionResult") or {}).get("finalDecision") or "—"
-        )
+        decision_final = decision_details.get("finalDecision") or "—"
 
         rows.append(
             {

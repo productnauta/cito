@@ -80,39 +80,6 @@
 
   <section class="panel">
     <div class="panel-header">
-      <h2>Votos dos ministros</h2>
-    </div>
-    {% if detail.minister_votes %}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Ministro</th>
-            <th>Voto</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for vote in detail.minister_votes %}
-            <tr>
-              <td>{{ vote.minister }}</td>
-              <td>
-                <span
-                  class="vote-badge {{ vote.vote_class }}"
-                  {% if vote.vote == 'Outros' %}title="Voto nao classificado."{% endif %}
-                >
-                  {{ vote.vote }}
-                </span>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <p class="empty">Sem dados de votos.</p>
-    {% endif %}
-  </section>
-
-  <section class="panel">
-    <div class="panel-header">
       <h2>Mapa de argumentos do processo</h2>
     </div>
     <div class="argument-map">
@@ -240,44 +207,100 @@
     </article>
   </section>
 
-  <section class="panel">
-    <div class="panel-header">
-      <h2>Partes do Processo</h2>
-      <span class="chip">{{ detail.parties|length }} partes</span>
-    </div>
-    {% if detail.parties %}
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Tipo da Parte</th>
-            <th>Nome da Parte</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for party in detail.parties[:10] %}
+  <section class="split-grid">
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Partes do Processo</h2>
+        <span class="chip">{{ detail.parties|length }} partes</span>
+      </div>
+      {% if detail.parties %}
+        <table class="data-table">
+          <thead>
             <tr>
-              <td>{{ party.type or '-' }}</td>
-              <td>{{ party.name or '-' }}</td>
+              <th>Tipo da Parte</th>
+              <th>Nome da Parte</th>
             </tr>
-          {% endfor %}
-          {% if detail.parties|length > 10 %}
-            {% for party in detail.parties[10:] %}
-              <tr class="table-row--hidden" data-row-group="parties">
+          </thead>
+          <tbody>
+            {% for party in detail.parties[:10] %}
+              <tr>
                 <td>{{ party.type or '-' }}</td>
                 <td>{{ party.name or '-' }}</td>
               </tr>
             {% endfor %}
-          {% endif %}
-        </tbody>
-      </table>
-      {% if detail.parties|length > 10 %}
-        <div class="actions">
-          <button class="secondary toggle-rows" data-target="parties">Exibir mais</button>
-        </div>
+            {% if detail.parties|length > 10 %}
+              {% for party in detail.parties[10:] %}
+                <tr class="table-row--hidden" data-row-group="parties">
+                  <td>{{ party.type or '-' }}</td>
+                  <td>{{ party.name or '-' }}</td>
+                </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+        {% if detail.parties|length > 10 %}
+          <div class="actions">
+            <button class="secondary toggle-rows" data-target="parties">Exibir mais</button>
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="empty">Nenhuma parte cadastrada.</p>
       {% endif %}
-    {% else %}
-      <p class="empty">Nenhuma parte cadastrada.</p>
-    {% endif %}
+    </article>
+
+    <article class="panel">
+      <div class="panel-header">
+        <h2>Votos dos ministros</h2>
+        <span class="chip">{{ detail.minister_votes|length }} votos</span>
+      </div>
+      {% if detail.minister_votes %}
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Ministro</th>
+              <th>Voto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for vote in detail.minister_votes[:10] %}
+              <tr>
+                <td>{{ vote.minister }}</td>
+                <td>
+                  <span
+                    class="vote-badge {{ vote.vote_class }}"
+                    {% if vote.vote == 'Outros' %}title="Voto nao classificado."{% endif %}
+                  >
+                    {{ vote.vote }}
+                  </span>
+                </td>
+              </tr>
+            {% endfor %}
+            {% if detail.minister_votes|length > 10 %}
+              {% for vote in detail.minister_votes[10:] %}
+                <tr class="table-row--hidden" data-row-group="votes">
+                  <td>{{ vote.minister }}</td>
+                  <td>
+                    <span
+                      class="vote-badge {{ vote.vote_class }}"
+                      {% if vote.vote == 'Outros' %}title="Voto nao classificado."{% endif %}
+                    >
+                      {{ vote.vote }}
+                    </span>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+        {% if detail.minister_votes|length > 10 %}
+          <div class="actions">
+            <button class="secondary toggle-rows" data-target="votes">Exibir mais</button>
+          </div>
+        {% endif %}
+      {% else %}
+        <p class="empty">Sem dados de votos.</p>
+      {% endif %}
+    </article>
   </section>
 
   <section class="panel">
